@@ -22,7 +22,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 | 步骤 | 落点 |
 |---|---|
-| 工具（macOS） | `~/.local/bin/clashctl`、`~/.local/lib/clashctl/` |
+| 工具（macOS / Linux） | `~/.local/bin/clashctl`、`~/.local/lib/clashctl/` |
 | 工具（Windows） | `%LOCALAPPDATA%\clash-pooling\bin\clashctl.cmd`、`...\lib\clashctl\` |
 | 配置 | Clash 配置目录下的 `Script.js`、`Merge.yaml`（保留目标已有的实测清单） |
 
@@ -120,4 +120,8 @@ clashctl exit-check --refresh     # 会检测到订阅变化，自动升级为�
 | 运行配置 | 同上目录的 `clash-verge.yaml` |
 | 定时任务（macOS） | `~/Library/LaunchAgents/work.dsh.clashctl-refresh-{daily,watch}.plist` |
 | 定时任务（Windows） | 任务计划程序里的 `work.dsh.clashctl-refresh-{watch,daily}` |
+| 定时任务（Linux） | `~/.config/systemd/user/work.dsh.clashctl-refresh-{watch,daily}.{service,timer}`；支持 `XDG_CONFIG_HOME` |
 | 状态与日志 | `~/.dsh-clashctl/`（Windows 为 `%USERPROFILE%\.dsh-clashctl`） |
+
+Linux 的 Clash 配置默认位于 `~/.local/share/io.github.clash-verge-rev.clash-verge-rev/`，
+支持 `XDG_DATA_HOME`。安装与排查命令见 [Linux 安装说明](linux.md)。

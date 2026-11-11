@@ -20,7 +20,7 @@ clashctl（外部，能联网）         Script.js（Clash 内，不能联网）
 | 核验 | `exit-check` `auto` | 改清单、可能重启 Verge |
 | 维护 | `audit` `doctor` `backup` | 只读或写备份 |
 
-与内核的交互不依赖界面：macOS 走 unix socket，Windows 走 `external-controller` 的 TCP 地址，
+与内核的交互不依赖界面：macOS / Linux 走 unix socket，Windows 走 `external-controller` 的 TCP 地址，
 两者的地址与密钥都从生成后的配置里读取。
 
 ## 3. 核验流水线
@@ -111,7 +111,7 @@ lib/clashctl/
 tests/                       三个缝：Script.js 分组逻辑、manifest 纯函数、敏感内容扫描
 ```
 
-全部逻辑用 Python 标准库实现，macOS 与 Windows 共用同一份代码。
-平台差异主要收在 `platform.py`；唯一例外是 `scheduler.py`，因为 launchd 与任务计划程序的
-注册方式本质不同，那里按平台分叉。
+全部逻辑用 Python 标准库实现，macOS、Windows 与 Linux 共用同一份代码。
+平台差异主要收在 `platform.py`；`scheduler.py` 按平台注册 launchd、Windows 任务计划程序
+或 systemd 用户定时器。
 清单相关逻辑单独放在 `manifest.py`，因为它决定「哪些节点要测」「清单怎么写回」，出错会静默污染数据。

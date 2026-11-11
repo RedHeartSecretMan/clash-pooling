@@ -1,4 +1,4 @@
-"""定时核验：macOS 用 launchd，Windows 用任务计划程序。"""
+"""定时核验：launchd、Windows 任务计划程序或 systemd 用户定时器。"""
 
 import json
 import os
@@ -11,6 +11,37 @@ from . import commands, platform
 TASK_WATCH = "work.dsh.clashctl-refresh-watch"
 TASK_DAILY = "work.dsh.clashctl-refresh-daily"
 PLIST_DIR = os.path.expanduser("~/Library/LaunchAgents")
+
+
+def _systemd_dir():
+    root = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(root, "systemd", "user")
+
+
+def _systemd_service(full=False):
+    args = [sys.executable, _launcher(), "auto", "run"]
+    if full:
+        args.append("--full")
+    command = " ".join('"' + a.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$") + '"' for a in args)
+    # 使用用户管理器的当前桌面环境，避免把本次登录的 XAUTHORITY 固定在 unit 中。
+    return ("[Unit]\nDescription=Clash pooling exit verification\nAfter=network-online.target\n"
+            "[Service]\nType=oneshot\nExecStart=" + command +
+            "\nTimeoutStartSec=3600\nUMask=0077\n")
+
+
+def _linux_enable():
+    root = _systemd_dir()
+    os.makedirs(root, exist_ok=True)
+    for name, full, trigger in ((TASK_WATCH, False, "OnActiveSec=1h\nOnUnitActiveSec=1h"),
+                                (TASK_DAILY, True, "OnCalendar=*-*-* 01:00:00")):
+        with open(os.path.join(root, name + ".service"), "w", encoding="utf-8") as f:
+            f.write(_systemd_service(full=full))
+        with open(os.path.join(root, name + ".timer"), "w", encoding="utf-8") as f:
+            f.write("[Unit]\nDescription=Clash pooling scheduled verification\n[Timer]\n" + trigger +
+                    "\n[Install]\nWantedBy=timers.target\n")
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer"], check=True)
+    print("已启用 systemd 用户定时器：每天 01:00 全量 + 每小时巡检")
 
 
 def _launcher():
@@ -68,6 +99,9 @@ def _win_register(name, arguments, trigger_script):
 
 
 def enable():
+    if platform.IS_LINUX:
+        _linux_enable()
+        return
     if platform.IS_WIN:
         _win_register(
             TASK_WATCH, "auto run",
@@ -99,6 +133,17 @@ def enable():
 
 
 def disable():
+    if platform.IS_LINUX:
+        subprocess.run(["systemctl", "--user", "disable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer"], check=True)
+        for name in (TASK_WATCH, TASK_DAILY):
+            for suffix in (".timer", ".service"):
+                try:
+                    os.remove(os.path.join(_systemd_dir(), name + suffix))
+                except FileNotFoundError:
+                    pass
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        print("已停用定时核验")
+        return
     if platform.IS_WIN:
         for task in (TASK_WATCH, TASK_DAILY):
             subprocess.run("schtasks /Delete /F /TN %s" % task, shell=True, capture_output=True)
@@ -113,7 +158,11 @@ def disable():
 
 
 def status():
-    if platform.IS_WIN:
+    if platform.IS_LINUX:
+        for name in (TASK_WATCH, TASK_DAILY):
+            state = subprocess.run(["systemctl", "--user", "is-active", name + ".timer"], capture_output=True, text=True)
+            print("  %s: %s" % (name, state.stdout.strip()))
+    elif platform.IS_WIN:
         def installed(task):
             out = subprocess.run("schtasks /Query /TN %s" % task, shell=True,
                                  capture_output=True, text=True).stdout

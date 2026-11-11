@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+
+# 本机私有配置（公司内网规则、内网 DNS）
+clash/local/

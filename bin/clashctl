@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""clashctl 启动器：把同级的 ../lib 加入 sys.path 后进入 CLI。"""
+
+import os
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+LIB = os.environ.get("CLASHCTL_LIB") or os.path.normpath(os.path.join(HERE, "..", "lib"))
+sys.path.insert(0, LIB)
+
+from clashctl import setup_console  # noqa: E402
+from clashctl.__main__ import main  # noqa: E402
+
+setup_console()
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

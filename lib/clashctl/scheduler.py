@@ -1,0 +1,184 @@
+"""定时核验：macOS 用 launchd，Windows 用任务计划程序。"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+
+from . import commands, platform
+
+TASK_WATCH = "work.dsh.clashctl-refresh-watch"
+TASK_DAILY = "work.dsh.clashctl-refresh-daily"
+PLIST_DIR = os.path.expanduser("~/Library/LaunchAgents")
+
+
+def _launcher():
+    return os.path.abspath(sys.argv[0])
+
+
+# ------------------------------------------------------------------ 安装/卸载
+
+def _plist(label, args, extra):
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{label}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{exe}</string>
+{argv}
+  </array>
+{extra}
+  <key>StandardErrorPath</key><string>/tmp/{label}.err</string>
+</dict>
+</plist>
+""".format(
+        label=label,
+        exe=_launcher(),
+        argv="\n".join("    <string>%s</string>" % a for a in args),
+        extra=extra,
+    )
+
+
+def _write_plist(path, content):
+    open(path, "w", encoding="utf-8").write(content)
+    subprocess.run(["launchctl", "unload", path], capture_output=True)
+    subprocess.run(["launchctl", "load", path], capture_output=True)
+
+
+def _win_register(name, arguments, trigger_script):
+    """用 ScheduledTask cmdlet 注册任务：允许电池运行、限制并发、放宽执行时限"""
+    ps = (
+        "$ErrorActionPreference = 'Stop'\n"
+        "$action = New-ScheduledTaskAction -Execute '{exe}' -Argument '\"{script}\" {args}'\n"
+        "$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries "
+        "-DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -StartWhenAvailable "
+        "-ExecutionTimeLimit (New-TimeSpan -Hours 2)\n"
+        "{trigger}\n"
+        "Register-ScheduledTask -TaskName '{name}' -Action $action -Trigger $trigger "
+        "-Settings $settings -Force | Out-Null\n"
+    ).format(exe=sys.executable, script=_launcher(), args=arguments,
+             trigger=trigger_script, name=name)
+    result = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        print("  注册任务失败：%s" % (result.stderr.strip() or result.stdout.strip()))
+
+
+def enable():
+    if platform.IS_WIN:
+        _win_register(
+            TASK_WATCH, "auto run",
+            "$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) "
+            "-RepetitionInterval (New-TimeSpan -Hours 1)",
+        )
+        _win_register(
+            TASK_DAILY, "auto run --full",
+            "$trigger = New-ScheduledTaskTrigger -Daily -At 01:00",
+        )
+        print("已启用：每天 01:00 全量 + 每小时巡检")
+        print("  日志：%s" % platform.auto_log())
+        return
+
+    os.makedirs(PLIST_DIR, exist_ok=True)
+    watch_path = os.path.join(PLIST_DIR, TASK_WATCH + ".plist")
+    daily_path = os.path.join(PLIST_DIR, TASK_DAILY + ".plist")
+    _write_plist(watch_path, _plist(
+        TASK_WATCH, ["auto", "run"],
+        "  <key>StartInterval</key><integer>3600</integer>\n  <key>RunAtLoad</key><true/>",
+    ))
+    _write_plist(daily_path, _plist(
+        TASK_DAILY, ["auto", "run", "--full"],
+        "  <key>StartCalendarInterval</key>\n  <dict><key>Hour</key><integer>1</integer>"
+        "<key>Minute</key><integer>0</integer></dict>",
+    ))
+    print("已启用：每天 01:00 全量 + 每小时巡检")
+    print("  日志：%s" % platform.auto_log())
+
+
+def disable():
+    if platform.IS_WIN:
+        for task in (TASK_WATCH, TASK_DAILY):
+            subprocess.run("schtasks /Delete /F /TN %s" % task, shell=True, capture_output=True)
+        print("已停用定时核验")
+        return
+    for task in (TASK_WATCH, TASK_DAILY):
+        path = os.path.join(PLIST_DIR, task + ".plist")
+        if os.path.exists(path):
+            subprocess.run(["launchctl", "unload", path], capture_output=True)
+            os.remove(path)
+    print("已停用定时核验")
+
+
+def status():
+    if platform.IS_WIN:
+        def installed(task):
+            out = subprocess.run("schtasks /Query /TN %s" % task, shell=True,
+                                 capture_output=True, text=True).stdout
+            return bool(out.strip())
+
+        print("  定时任务：%s ｜ %s" % ("每小时巡检" if installed(TASK_WATCH) else "未启用",
+                                     "每天 01:00 全量" if installed(TASK_DAILY) else "未启用"))
+    else:
+        watch = os.path.exists(os.path.join(PLIST_DIR, TASK_WATCH + ".plist"))
+        daily = os.path.exists(os.path.join(PLIST_DIR, TASK_DAILY + ".plist"))
+        print("  定时任务：%s ｜ %s" % ("每小时巡检" if watch else "未启用",
+                                     "每天 01:00 全量" if daily else "未启用"))
+    prof = platform.profile_file()
+    print("  订阅文件：%s" % (prof or "未知"))
+    if prof and os.path.exists(prof):
+        print("    更新于 %s" % time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(prof))))
+    try:
+        data = json.load(open(platform.marker_path(), encoding="utf-8"))
+    except Exception:
+        print("  上次核验：从未")
+        print("  状态：从未核验过，下次检查会执行一次")
+        return
+    print("  上次核验：%s（已验 %s 个 / 订阅 %s 个）"
+          % (data.get("verified_at", "?"), data.get("verified_count", "?"), data.get("node_count", "?")))
+    missing = int(data.get("node_count", 0)) - int(data.get("verified_count", 0))
+    if missing <= 0:
+        print("  状态：清单覆盖全部节点")
+    else:
+        print("  状态：%d 个节点本轮无响应（每小时巡检会补测，恢复后自动进池）" % missing)
+
+
+# ------------------------------------------------------------------ 定时执行
+
+def run(mode="watch"):
+    marker = platform.marker_path()
+    os.makedirs(os.path.dirname(marker), exist_ok=True)
+    log = platform.auto_log()
+
+    def note(text):
+        with open(log, "a", encoding="utf-8") as handle:
+            handle.write("[%s] %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), text))
+
+    if mode != "full" and time.strftime("%H") == "01":
+        return
+    try:
+        if mode == "full":
+            note("每日 01:00 全量核验开始")
+            changed = commands._refresh(full=True)
+        else:
+            note("每小时巡检开始")
+            changed = commands._refresh()
+    except Exception as exc:  # 定时任务里不能抛出去
+        note("核验失败：%s" % exc)
+        return
+    if changed is None:
+        note("已有核验在跑，本次跳过")
+        return
+    if not changed:
+        note("清单无变化，跳过重启")
+        return
+    note("清单已更新，重启 Clash Verge")
+    try:
+        ok = platform.restart_app()
+    except Exception as exc:
+        note("重启失败：%s" % exc)
+        return
+    if not ok:
+        note("重启失败：找不到 Clash Verge 主程序，请手动重开")

@@ -13,6 +13,9 @@ function deployedScript() {
   if (process.platform === "win32") {
     return path.join(process.env.APPDATA || "", APP_DIR, "profiles", "Script.js");
   }
+  if (process.platform === "linux") {
+    return path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME || "", ".local/share"), APP_DIR, "profiles", "Script.js");
+  }
   return path.join(process.env.HOME || "", "Library/Application Support", APP_DIR, "profiles", "Script.js");
 }
 

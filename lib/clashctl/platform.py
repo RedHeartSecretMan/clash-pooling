@@ -1,6 +1,6 @@
 """平台差异集中在这里：路径、控制端点、内核二进制、重启应用、定时任务。
 
-两个平台（macOS / Windows）的环境差异全部由本模块吸收，其余模块只调用这里的函数。
+macOS、Windows 和 Linux 的环境差异由本模块吸收。
 """
 
 import os
@@ -13,6 +13,7 @@ import time
 APP_DIR = "io.github.clash-verge-rev.clash-verge-rev"
 IS_MAC = sys.platform == "darwin"
 IS_WIN = os.name == "nt"
+IS_LINUX = sys.platform.startswith("linux")
 
 
 # ---------------------------------------------------------------- 路径
@@ -21,6 +22,8 @@ def config_root():
     """Clash Verge 的配置根目录"""
     if IS_WIN:
         return os.path.join(os.environ.get("APPDATA", ""), APP_DIR)
+    if IS_LINUX:
+        return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), APP_DIR)
     return os.path.expanduser("~/Library/Application Support/" + APP_DIR)
 
 
@@ -135,6 +138,15 @@ def system_proxy():
             else:
                 host, port = value, 0
         return {"enabled": bool(enabled), "host": host, "port": port}
+    if IS_LINUX:
+        try:
+            def setting(schema, key):
+                return subprocess.check_output(["gsettings", "get", schema, key], text=True, timeout=5).strip().strip("'")
+            return {"enabled": setting("org.gnome.system.proxy", "mode") == "manual",
+                    "host": setting("org.gnome.system.proxy.http", "host"),
+                    "port": int(setting("org.gnome.system.proxy.http", "port"))}
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return None
     return None
 
 
@@ -150,6 +162,9 @@ def core_binary():
     if IS_WIN:
         root = os.environ.get("ProgramData", r"C:\ProgramData")
         return os.path.join(root, "clash-verge-service", "cores", "verge-mihomo.exe")
+    service_core = "/var/lib/clash-verge-service/cores/verge-mihomo"
+    if IS_LINUX and os.access(service_core, os.X_OK):
+        return service_core
     return shutil.which("verge-mihomo") or ""
 
 
@@ -157,6 +172,8 @@ def app_exe():
     """Clash Verge 主程序路径（用于重启）"""
     if IS_MAC:
         return "/Applications/Clash Verge.app"
+    if IS_LINUX:
+        return shutil.which("clash-verge") or ""
     if not IS_WIN:
         return ""
 
@@ -201,6 +218,15 @@ def restart_app(delay=4):
             subprocess.Popen(["cmd", "/c", "start", "", exe], shell=False)
             return True
         return False
+    if IS_LINUX:
+        exe = app_exe()
+        if not exe:
+            return False
+        subprocess.run(["pkill", "-TERM", "-u", str(os.getuid()), "-x", "clash-verge"], capture_output=True)
+        time.sleep(delay)
+        subprocess.Popen([exe], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+        return True
     return False
 
 

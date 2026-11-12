@@ -51,15 +51,15 @@ Clash 侧的 `Script.js` / `Merge.yaml` 在本仓库维护，用 `clashctl sync`
 
 ## 平台支持
 
-macOS 与 Windows 共用同一份 Python 实现，平台差异集中在 `lib/clashctl/platform.py`：
+macOS、Windows 与 Linux 共用同一份 Python 实现，平台差异集中在 `lib/clashctl/platform.py`：
 
-| 差异点 | macOS | Windows |
-|---|---|---|
-| 控制接口 | unix socket | TCP `external-controller` |
-| 配置目录 | `~/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev` | `%APPDATA%\io.github.clash-verge-rev.clash-verge-rev` |
-| 内核 | `.app` 内 | `C:\ProgramData\clash-verge-service\cores\verge-mihomo.exe` |
-| 定时任务 | launchd | 任务计划程序 |
-| 重启应用 | `osascript` | `taskkill` + `start` |
+| 差异点 | macOS | Windows | Linux |
+|---|---|---|---|
+| 控制接口 | unix socket | TCP `external-controller` | unix socket |
+| 配置目录 | `~/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev` | `%APPDATA%\io.github.clash-verge-rev.clash-verge-rev` | `$XDG_DATA_HOME/io.github.clash-verge-rev.clash-verge-rev`，默认 `~/.local/share/` 下 |
+| 内核 | `.app` 内 | `C:\ProgramData\clash-verge-service\cores\verge-mihomo.exe` | 可执行的 service 内核，或 PATH 中的 `verge-mihomo` |
+| 定时任务 | launchd | 任务计划程序 | systemd 用户定时器 |
+| 重启应用 | `osascript` | `taskkill` + `start` | 退出当前用户的进程，再启动 `clash-verge` |
 
 需要 Python 3.10+。Node.js 只用于跑分组测试，没有也能装（该测试会跳过）。
 
@@ -85,6 +85,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 clashctl sync
 clashctl auto enable
 ```
+
+Linux 使用同一份 `install.sh`，首次安装后先执行 `clashctl exit-check --refresh --full`，
+再重新打开 Clash Verge 应用清单。配置路径、桌面会话要求和 systemd 命令见 [Linux 安装说明](docs/linux.md)。
 
 ## 分组模型
 
@@ -130,6 +133,7 @@ clashctl auto enable
 | [docs/clash-config.md](docs/clash-config.md) | Clash 侧配置：Script.js 结构、Merge.yaml、同步流程 |
 | [docs/operations.md](docs/operations.md) | 安装、命令速查、故障排查、回滚 |
 | [docs/measurements.md](docs/measurements.md) | 测量方法与实测数据 |
+| [docs/linux.md](docs/linux.md) | Linux 路径、安装、systemd 与故障排查 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
 
 ## 许可

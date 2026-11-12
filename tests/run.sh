@@ -19,6 +19,10 @@ echo "== 清单与增量刷新 =="
 python3 tests/manifest.test.py || fail=1
 
 echo
+echo "== Linux 平台与定时任务 =="
+python3 tests/linux.test.py || fail=1
+
+echo
 echo "== 敏感内容 =="
 python3 tests/check_sensitive.py || fail=1
 

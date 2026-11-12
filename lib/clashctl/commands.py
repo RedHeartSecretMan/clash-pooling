@@ -462,6 +462,10 @@ def project_root():
 
 def sync():
     root = project_root()
+    if not root:
+        raise SystemExit(
+            "找不到项目目录：请在 clash-pooling 仓库里执行 sync，"
+            "或用 CLASH_POOLING_HOME 指向仓库路径")
     src_script = os.path.join(root, "clash", "Script.js")
     src_merge = os.path.join(root, "clash", "Merge.yaml")
     local_rules = os.path.join(root, "clash", "local", "rules.local.js")

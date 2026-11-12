@@ -1,7 +1,10 @@
 # Linux 安装与维护
 
-适用于桌面会话中的 Clash Verge Rev。已在 Ubuntu 26.04.1 LTS 上验证；定时核验使用 systemd 用户定时器。
+适用于桌面会话中的 Clash Verge Rev，定时核验使用 systemd 用户定时器。
 需要 Python 3.10+、`clash-verge` 和可执行的 mihomo 内核。Node.js 用于分组测试。
+
+验证范围见文末「范围与限制」：路径、控制接口与定时器生命周期在 Ubuntu 24.04 上实测过，
+图形会话下的应用重启与具体发行版的路径需要你在自己的机器上确认。
 
 ## 安装
 
@@ -84,3 +87,15 @@ Flatpak、容器、无桌面的服务器，以及使用其他配置布局的安�
 `tests/linux.test.py` 的 14 项用例全部用打补丁的临时环境，覆盖 XDG 路径、控制接口回退、
 应用重启、内核查找、GNOME 代理、systemd 注册/查询/停用与转义，因此在 macOS 上也会执行，
 非 Linux 机器也能拦住 Linux 分支的回归。
+
+## 范围与限制
+
+以下内容没有在本仓库的验证范围内，使用时请自行确认：
+
+| 项 | 现状 |
+|---|---|
+| 图形会话下的应用重启 | 只验证了 systemd 单元语义（`KillMode=process`、`ExecStart`）与重启函数本身，没有在真实桌面会话里观察 GUI 是否被成功拉起 |
+| 发行版与版本 | 路径、控制接口、systemd 注册在 Ubuntu 24.04（WSL，systemd 用户管理器）上实测；贡献者在 Ubuntu 26.04 上验证过，两者行为可能不同 |
+| 桌面环境 | 系统代理检查只覆盖 GNOME（`gsettings`）；KDE 等桌面显示「跳过」 |
+| 打包方式 | 仅覆盖 deb/rpm 与服务模式；Flatpak、容器、无桌面的服务器、AppImage 默认布局需要自行适配或设 `CLASH_CORE` |
+| Clash Verge 自身版本 | 按当前生成配置的字段（`external-controller-unix` / `external-controller`）解析，改版后以 `doctor` 打印的端点为准 |

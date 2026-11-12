@@ -1,0 +1,38 @@
+name: tests
+
+# 项目测试：三端各跑一遍完整测试集（分组、清单、平台适配、敏感内容）。
+# 发布文案的规范写在 docs/releasing.md，由人工核对，不在这里做正则校验。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 运行测试（POSIX）
+        if: runner.os != 'Windows'
+        run: ./tests/run.sh
+
+      - name: 运行测试（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/run.ps1

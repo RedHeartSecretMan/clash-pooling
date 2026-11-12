@@ -2,6 +2,13 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
+## [Unreleased]
+
+### Changed
+
+- CI 改为三端测试：push / PR 时在 Ubuntu、macOS、Windows 上各跑一遍完整测试集，
+  不再对 Release 文案做正则校验（格式约定见 `docs/releasing.md`）。
+
 ## [0.1.2] - 2026-11-12
 
 ### Added

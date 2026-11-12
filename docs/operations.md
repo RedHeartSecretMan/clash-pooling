@@ -51,7 +51,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```bash
 clashctl auto status     # 查看两个任务与最近一次核验
-tail -f ~/.dsh-clashctl/auto.log
+tail -f ~/.clash-pooling/auto.log
 ```
 
 | 任务 | 时间 | 行为 |
@@ -61,7 +61,7 @@ tail -f ~/.dsh-clashctl/auto.log
 
 两个任务都在核验结束后重启 Clash Verge（断连数秒）；若清单没有变化则跳过重启。
 
-状态文件 `~/.dsh-clashctl/last-refresh` 记录：最近核验时间、订阅版本戳、已验节点数、订阅节点数、上次是否全量。
+状态文件 `~/.clash-pooling/last-refresh` 记录：最近核验时间、订阅版本戳、已验节点数、订阅节点数、上次是否全量。
 
 ## 4. 日常操作
 
@@ -118,10 +118,13 @@ clashctl exit-check --refresh     # 会检测到订阅变化，自动升级为�
 | 分组与规则 | `~/Library/Application Support/io.github.clash-verge-rev.clash-verge-rev/profiles/Script.js` |
 | DNS 覆写 | 同上目录的 `Merge.yaml` |
 | 运行配置 | 同上目录的 `clash-verge.yaml` |
-| 定时任务（macOS） | `~/Library/LaunchAgents/work.dsh.clashctl-refresh-{daily,watch}.plist` |
-| 定时任务（Windows） | 任务计划程序里的 `work.dsh.clashctl-refresh-{watch,daily}` |
-| 定时任务（Linux） | `~/.config/systemd/user/work.dsh.clashctl-refresh-{watch,daily}.{service,timer}`；支持 `XDG_CONFIG_HOME` |
-| 状态与日志 | `~/.dsh-clashctl/`（Windows 为 `%USERPROFILE%\.dsh-clashctl`） |
+| 定时任务（macOS） | `~/Library/LaunchAgents/clash-pooling.refresh-{daily,watch}.plist` |
+| 定时任务（Windows） | 任务计划程序里的 `clash-pooling.refresh-{watch,daily}` |
+| 定时任务（Linux） | `~/.config/systemd/user/clash-pooling.refresh-{watch,daily}.{service,timer}`；支持 `XDG_CONFIG_HOME` |
+| 状态与日志 | `~/.clash-pooling/`（Windows 为 `%USERPROFILE%\.clash-pooling`） |
+
+从 0.1.1 及更早升级：任务名与状态目录都改了。重新执行一次 `clashctl auto enable` 即可——
+它会卸载旧任务再装新的；状态目录在首次运行时自动从 `~/.dsh-clashctl` 迁移过来，无需手动搬。
 
 Linux 的 Clash 配置默认位于 `~/.local/share/io.github.clash-verge-rev.clash-verge-rev/`，
 支持 `XDG_DATA_HOME`。安装与排查命令见 [Linux 安装说明](linux.md)。

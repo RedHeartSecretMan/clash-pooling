@@ -93,7 +93,7 @@ function assert(c, m) {
 
 const built = buildGroups();
 const { groups, order } = built;
-const RULES = built.config.rules;          // 本地 70 条 + 测试用的 1 条机场规则
+const RULES = built.config.rules;          // 本地规则 + 测试用的 1 条机场规则
 const M = (n) => membersOf(groups, n);
 
 // 1. 服务组恰好三个
@@ -231,6 +231,50 @@ check("Google 例外与遥测拦截早于 google.com 兜底", () => {
   }
 });
 
+// 10f. Cursor 的 Agent API 在 cursor.sh，不是 cursor.com；漏掉会落到 MATCH/通用
+check("Cursor API 域名走 AI 组", () => {
+  const rule = "DOMAIN-SUFFIX,cursor.sh,AI";
+  const at = RULES.indexOf(rule);
+  assert(at >= 0, "缺少 " + rule);
+  const fallback = RULES.findIndex((r) => String(r).startsWith("MATCH,"));
+  assert(fallback < 0 || at < fallback, rule + " 必须排在 MATCH 之前");
+});
+
+// 10g. 各 AI 服务有 GEOSITE 宽泛兜底，避免只覆盖手写域名
+check("AI 服务有 GEOSITE 宽泛兜底", () => {
+  for (const rule of [
+    "GEOSITE,openai,AI",
+    "GEOSITE,anthropic,AI",
+    "GEOSITE,google-gemini,AI",
+    "GEOSITE,cursor,AI",
+    "GEOSITE,perplexity,AI",
+    "GEOSITE,github-copilot,AI",
+    "GEOSITE,huggingface,AI",
+  ]) {
+    assert(RULES.includes(rule), "缺少 " + rule);
+  }
+});
+
+// 10h. Gemini 网页规则必须先于宽泛 GEOSITE，否则网页版会被切到 AI 组
+check("Google Gemini 宽泛兜底不覆盖网页例外", () => {
+  const web = RULES.indexOf("DOMAIN-SUFFIX,gemini.google.com,通用");
+  const broad = RULES.indexOf("GEOSITE,google-gemini,AI");
+  assert(web >= 0, "缺少 gemini.google.com 通用规则");
+  assert(broad > web, "GEOSITE,google-gemini 应排在 gemini.google.com 通用规则之后");
+});
+
+// 10i. cloudcode-pa 是宽泛关键字，排在该组精确域名之后
+check("cloudcode-pa 关键字规则排在该组末尾", () => {
+  const exact = [
+    "DOMAIN-SUFFIX,daily-cloudcode-pa.googleapis.com,AI",
+    "DOMAIN-SUFFIX,antigravity.google,AI",
+    "DOMAIN-SUFFIX,cloudaicompanion.googleapis.com,AI",
+  ];
+  const keyword = RULES.indexOf("DOMAIN-KEYWORD,cloudcode-pa,AI");
+  assert(keyword >= 0, "缺少 cloudcode-pa 关键字规则");
+  assert(keyword > Math.max(...exact.map((r) => RULES.indexOf(r))), "cloudcode-pa 关键字应排在精确域名之后");
+});
+
 // 10e. 落地页即使误入清单（例如旧版本写入），也不进池也不进「其他」
 check("落地页即使出现在清单里也不进任何组", () => {
   const manifest = Object.assign({}, VERIFIED_FIXTURE);
@@ -240,6 +284,18 @@ check("落地页即使出现在清单里也不进任何组", () => {
     const members = groups[name].proxies || [];
     assert(!members.includes("1 官网 http://jump.example"), `${name} 里出现了落地页节点`);
   }
+});
+
+// 10f. 未在 PREFER 中的地区也要有中文名
+check("PREFER 之外的地区用中文名建池", () => {
+  // 池数量上限 8，这里只加一个地区，确保它落在上限内
+  const extra = ["韩国 X1", "韩国 X2", "韩国 X3"];
+  const manifest = Object.assign({}, VERIFIED_FIXTURE);
+  extra.forEach((n, i) => { manifest[n] = ["KR", 500 + i]; });
+  const proxies = PROXIES.concat(extra.map((n) => ({ name: n })));
+  const { groups } = buildGroups(manifest, proxies);
+  assert(groups["韩国"], "应生成名为「韩国」的池，而不是 KR");
+  assert(!groups["KR"], "不应再出现代码名 KR");
 });
 
 // 11. 组顺序

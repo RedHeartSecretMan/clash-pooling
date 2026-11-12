@@ -31,7 +31,7 @@
 |---|---|
 | Clash 数据 | `~/.local/share/io.github.clash-verge-rev.clash-verge-rev/`；支持 `XDG_DATA_HOME` |
 | systemd unit | `~/.config/systemd/user/`；支持 `XDG_CONFIG_HOME` |
-| 日志与核验状态 | `~/.dsh-clashctl/` |
+| 日志与核验状态 | `~/.clash-pooling/` |
 
 控制接口从 Clash Verge 生成的配置里读：有 `external-controller-unix` 就走 unix socket，
 没有就退回 `external-controller` 的 TCP 地址。需要临时指定时用 `CLASH_SOCK`（socket）
@@ -51,8 +51,8 @@ macOS launchd 只在唤醒后补跑，关机期间错过的不执行。
 `auto disable` 会停用两个 timer 并移除 unit 文件；已经开始的核验会完成本轮。
 
 ```bash
-systemctl --user list-timers 'work.dsh.clashctl-refresh-*'
-journalctl --user -u work.dsh.clashctl-refresh-watch.service
+systemctl --user list-timers 'clash-pooling.refresh-*'
+journalctl --user -u clash-pooling.refresh-watch.service
 ~/.local/bin/clashctl auto disable
 ```
 
@@ -76,7 +76,7 @@ Flatpak、容器、无桌面的服务器，以及使用其他配置布局的安�
 | 定时核验跑完，但 Clash Verge 没被重开 | 用户管理器里没有图形会话环境变量 | `systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY` 后重试 |
 | `doctor` 报找不到内核 | AppImage 或非标准布局 | `export CLASH_CORE=/path/to/verge-mihomo`，或把 `verge-mihomo` 加进 PATH |
 | 控制接口连不上 | socket 已失效，或 Clash 只开了 TCP | 用 `CLASH_SOCK` / `CLASH_CONTROLLER` 指定；`doctor` 会打印当前端点 |
-| 想看核验日志 | 定时任务的输出不写入文件 | `journalctl --user -u work.dsh.clashctl-refresh-watch.service`；手动执行时日志在 `~/.dsh-clashctl/auto.log` |
+| 想看核验日志 | 定时任务的输出不写入文件 | `journalctl --user -u clash-pooling.refresh-watch.service`；手动执行时日志在 `~/.clash-pooling/auto.log` |
 
 ## 测试
 

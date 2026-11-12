@@ -43,8 +43,35 @@ def merge_path():
     return os.environ.get("CLASH_MERGE") or os.path.join(profiles_dir(), "Merge.yaml")
 
 
+STATE_DIR = "~/.clash-pooling"
+LEGACY_STATE_DIR = "~/.dsh-clashctl"
+
+
 def state_dir():
-    return os.path.normpath(os.path.expanduser("~/.dsh-clashctl"))
+    """状态目录（marker、日志、锁文件）；纯读，不产生副作用"""
+    return os.path.normpath(os.path.expanduser(STATE_DIR))
+
+
+def migrate_state_dir():
+    """把旧版本的状态目录搬到新位置；由 CLI 启动时调用一次
+
+    返回 True 表示确实发生了迁移。新目录已存在、或旧目录不存在时直接返回 False，
+    因此重复调用安全。
+    """
+    current = os.path.expanduser(STATE_DIR)
+    legacy = os.path.expanduser(LEGACY_STATE_DIR)
+    if os.path.exists(current) or not os.path.isdir(legacy):
+        return False
+    try:
+        os.replace(legacy, current)        # 同分区：原子改名
+        return True
+    except OSError:
+        try:
+            shutil.move(legacy, current)   # 跨分区等情况
+            return True
+        except OSError:
+            os.makedirs(current, exist_ok=True)
+            return False
 
 
 def marker_path():
@@ -174,6 +201,16 @@ def mixed_port():
 
 # ---------------------------------------------------------------- 内核与应用
 
+def _readable(path):
+    """真的能打开才算可读：Windows 上 os.access 不检查 ACL"""
+    try:
+        with open(path, "rb") as handle:
+            handle.read(1)
+        return True
+    except OSError:
+        return False
+
+
 def core_binary():
     override = os.environ.get("CLASH_CORE")
     if override:
@@ -181,8 +218,17 @@ def core_binary():
     if IS_MAC:
         return "/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo"
     if IS_WIN:
-        root = os.environ.get("ProgramData", r"C:\ProgramData")
-        return os.path.join(root, "clash-verge-service", "cores", "verge-mihomo.exe")
+        # service 目录只对管理员可读，计划任务以普通用户跑，读不到。
+        # 先试安装目录里的同名内核（与服务用的是同一个文件），再退回 service 目录。
+        for candidate in (
+            os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                         "Clash Verge", "verge-mihomo.exe"),
+            os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"),
+                         "clash-verge-service", "cores", "verge-mihomo.exe"),
+        ):
+            if _readable(candidate):
+                return candidate
+        return ""
     if IS_LINUX:
         # 不同打包方式放内核的位置不一样：服务模式与 deb/rpm；AppImage 用 CLASH_CORE 指定
         for candidate in (

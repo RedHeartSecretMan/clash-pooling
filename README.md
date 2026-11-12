@@ -98,13 +98,13 @@ Linux 使用同一份 `install.sh`，首次安装后先执行 `clashctl exit-che
 
 | 层 | 职责 |
 |---|---|
-| 规则 | 决定域名归哪个服务组。本仓库内置本地规则 68 条，机场自带规则由订阅决定 |
+| 规则 | 决定域名归哪个服务组。本仓库内置本地规则 75 条，机场自带规则由订阅决定 |
 | 服务组 | 你在界面切换的地方；AI 组自动排除香港 |
 | 地区池 | 由实测清单自动发现：某个地区验证节点达到 3 个就建池，池内 `url-test` 自动择优 |
 | 其他 | 池外且实测通过的节点，手动指定冷门节点时用 |
 
 规则与池的**具体数量取决于订阅**，不是固定值；用 `clashctl status` 与 `clashctl regions` 看当前实际情况。
-本机私有规则（`clash/local/rules.local.js`）会在同步时注入到规则最前面（优先于内置规则），不计入上面的 68 条。
+本机私有规则（`clash/local/rules.local.js`）会在同步时注入到规则最前面（优先于内置规则），不计入上面的 75 条。
 
 ## 测试
 
@@ -136,6 +136,7 @@ Linux 使用同一份 `install.sh`，首次安装后先执行 `clashctl exit-che
 | [docs/operations.md](docs/operations.md) | 安装、命令速查、故障排查、回滚 |
 | [docs/measurements.md](docs/measurements.md) | 测量方法与实测数据 |
 | [docs/linux.md](docs/linux.md) | Linux 路径、安装、systemd 与故障排查 |
+| [docs/releasing.md](docs/releasing.md) | 发布流程：版本号、tag、Release 写法 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
 
 ## 许可

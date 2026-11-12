@@ -2,7 +2,38 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
-项目从 `0.1.0` 起步；此前的内部演进不单独记版本。
+## [0.1.2] - 2026-11-12
+
+### Added
+
+- AI 服务补 `GEOSITE` 兜底：OpenAI、Anthropic、Google Gemini、Cursor、Perplexity、Copilot、
+  HuggingFace 各加一条宽泛规则；`cloudcode-pa` 关键字规则移到精确域名之后，保持具体规则优先。
+  本地规则 68 → 75 条（AI 组 29 → 36 条）。
+- 补 `DOMAIN-SUFFIX,cursor.sh,AI`：Cursor Agent 实际请求 `api2.cursor.sh`、
+  `agentn.global.api5.cursor.sh`，此前只匹配 `cursor.com`，请求落到 `MATCH,通用`（香港），
+  表现为模型列表缺 Claude、Magpie 返回 502。
+- 地区名改为**内置完整对照表**（ISO 3166-1 两位代码 → 中文，264 条），不再需要为新增地区
+  手改代码；超过 7 个字的地区用通行简称（阿联酋、波黑、特立尼达…），其余取 CLDR 中文名。
+- 新增发布校验 workflow：`release: published` 时检查标题是否符合 `v<版本> — <主题>`、
+  正文是否含 `## 摘要`、是否残留旧写法 `## 本版内容`，不合格开 issue 提醒并让运行失败。
+
+### Changed
+
+- **计划任务改名**：`work.dsh.clashctl-refresh-{watch,daily}` → `clash-pooling.refresh-{watch,daily}`，
+  三端一致；`auto enable` 会先卸载旧任务再装新的，不会两套并存。
+- **状态目录改名**：`~/.dsh-clashctl` → `~/.clash-pooling`，内容自动迁移。
+- 状态目录迁移改为显式调用：`state_dir()` 变纯读，启动时调一次 `platform.migrate_state_dir()`。
+- 旧任务清理合并为 `_drop_legacy_jobs()`，按平台分派。
+- 新增 `docs/releasing.md`：版本、tag、Release 标题与正文的写法约定。
+
+### Fixed
+
+- **Windows 定时核验从未真正跑起来过**：`C:\ProgramData\clash-verge-service\cores\` 只对管理员可读，
+  计划任务以普通用户运行，`os.path.exists` 返回 False，每次巡检都报「找不到内核」。
+  改为按**实际可读性**挑选内核：优先 `C:\Program Files\Clash Verge\verge-mihomo.exe`。
+- Windows 的 `os.access(path, R_OK)` 不检查 ACL，新增 `_readable()` 以实际打开文件为准。
+- 空的 `clash/local/rules.local.js`、缺 `LOCAL_RULES_EXTRA` 声明、空的本地 `Merge.yaml`
+  不再把部署脚本写坏。
 
 ## [0.1.1] - 2026-11-12
 
@@ -82,7 +113,7 @@
 - `audit` 按规则类型前缀计数，`GEOSITE`、`DOMAIN` 类规则未被统计，本地与机场规则的
   分界线错位，遮蔽报告失真。
 - 并发保护用进程名匹配，而定时任务的命令行里没有该名字，实际从未生效；改为锁文件
-  （`~/.dsh-clashctl/refresh.lock`，陈旧锁 3 小时后自动清理）。
+  （`~/.clash-pooling/refresh.lock`，陈旧锁 3 小时后自动清理）。
 - 测量时未确认节点切换生效就开始探测，可能读到上一个节点的出口；现在确认后才测量。
 - 整轮超时被截断时，`exit-check` 会因缺少结果抛 KeyError。
 - Windows 上 `auto status` 只检查巡检任务，全量任务即使在也会显示「未启用」。

@@ -1,0 +1,79 @@
+name: release-check
+
+# 发布后校验 Release 是否符合 docs/releasing.md：
+#   标题 v<版本> — <主题>
+#   正文首节是 ## 摘要
+#   不使用旧写法 ## 本版内容
+# 不合格时开一个 [发布检查] 的 issue 提醒，并让本次运行失败。
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const release = context.payload.release;
+            const title = (release.name || "").trim();
+            const body = release.body || "";
+            const problems = [];
+
+            if (!/^v\d+\.\d+\.\d+ — \S/.test(title)) {
+              problems.push(`标题应为 \`v<版本> — <主题>\`（破折号是 —），当前是：\`${title || "(空)"}\``);
+            }
+            if (!/^##\s+摘要\s*$/m.test(body)) {
+              problems.push("正文缺少 `## 摘要` 小节，规范要求首节是摘要");
+            }
+            if (/^##\s+本版内容\s*$/m.test(body)) {
+              problems.push("正文含 `## 本版内容`，这是旧写法，请按 docs/releasing.md 的小节模板改写");
+            }
+
+            if (problems.length === 0) {
+              core.info(`release ${release.tag_name} 符合规范`);
+              return;
+            }
+
+            const lines = [
+              `发布 [${release.tag_name}](${release.html_url}) 不符合 [docs/releasing.md](../blob/main/docs/releasing.md) 的规范：`,
+              "",
+              ...problems.map((p) => `- ${p}`),
+              "",
+              "改好后在 Release 页面点 Edit 更新标题或正文即可，这个 issue 可以直接关闭。",
+            ].join("\n");
+
+            // Release 本身不支持评论，用 issue 提醒；同一条 release 只开一个
+            const marker = `[发布检查] ${release.tag_name}`;
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100,
+            });
+            const existing = open.data.find((issue) => issue.title.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: lines,
+              });
+              core.info(`已在 #${existing.number} 追加提醒`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `${marker} 不符合发布规范`,
+                body: lines,
+              });
+              core.info(`已创建提醒 issue #${created.data.number}`);
+            }
+
+            core.setFailed(`Release ${release.tag_name} 不符合发布规范：${problems.join("；")}`);

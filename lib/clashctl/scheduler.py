@@ -8,8 +8,11 @@ import time
 
 from . import commands, platform
 
-TASK_WATCH = "work.dsh.clashctl-refresh-watch"
-TASK_DAILY = "work.dsh.clashctl-refresh-daily"
+TASK_WATCH = "clash-pooling.refresh-watch"
+TASK_DAILY = "clash-pooling.refresh-daily"
+
+# 0.1.1 及更早用的名字，安装/卸载时一并清理，避免两套任务并存
+LEGACY_TASKS = ("work.dsh.clashctl-refresh-watch", "work.dsh.clashctl-refresh-daily")
 PLIST_DIR = os.path.expanduser("~/Library/LaunchAgents")
 
 
@@ -131,6 +134,38 @@ def _plist(label, args, extra):
     )
 
 
+def _drop_legacy_jobs():
+    """删除 0.1.1 及更早安装的定时任务，按平台分派
+
+    只在安装/卸载定时任务时调用：这两条命令本来就要写系统状态，
+    把旧任务一并清掉才不会出现「新旧两套同时在跑」。
+    """
+    if platform.IS_MAC:
+        for label in LEGACY_TASKS:
+            path = os.path.join(PLIST_DIR, label + ".plist")
+            if not os.path.exists(path):
+                continue
+            subprocess.run(["launchctl", "unload", path], capture_output=True)
+            try:
+                os.remove(path)
+                print("  已移除旧任务：%s" % label)
+            except OSError:
+                pass
+        return
+    if platform.IS_WIN:
+        for task in LEGACY_TASKS:
+            subprocess.run("schtasks /Delete /F /TN %s" % task, shell=True, capture_output=True)
+        return
+    if platform.IS_LINUX:
+        for task in LEGACY_TASKS:
+            _systemctl("disable", "--now", task + ".timer")
+            for suffix in (".timer", ".service"):
+                try:
+                    os.remove(os.path.join(_systemd_dir(), task + suffix))
+                except FileNotFoundError:
+                    pass
+
+
 def _write_plist(path, content):
     open(path, "w", encoding="utf-8").write(content)
     subprocess.run(["launchctl", "unload", path], capture_output=True)
@@ -157,6 +192,7 @@ def _win_register(name, arguments, trigger_script):
 
 
 def _enable():
+    _drop_legacy_jobs()
     if platform.IS_LINUX:
         return _linux_enable()
     if platform.IS_WIN:
@@ -195,7 +231,7 @@ def _disable():
         if not _systemctl("disable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer"):
             print("  未停用：单元文件保留在 %s，修好 systemctl 后重试" % _systemd_dir())
             return False
-        for name in (TASK_WATCH, TASK_DAILY):
+        for name in (TASK_WATCH, TASK_DAILY) + LEGACY_TASKS:
             for suffix in (".timer", ".service"):
                 try:
                     os.remove(os.path.join(_systemd_dir(), name + suffix))
@@ -205,11 +241,11 @@ def _disable():
         print("已停用定时核验")
         return True
     if platform.IS_WIN:
-        for task in (TASK_WATCH, TASK_DAILY):
+        for task in (TASK_WATCH, TASK_DAILY) + LEGACY_TASKS:
             subprocess.run("schtasks /Delete /F /TN %s" % task, shell=True, capture_output=True)
         print("已停用定时核验")
         return True
-    for task in (TASK_WATCH, TASK_DAILY):
+    for task in (TASK_WATCH, TASK_DAILY) + LEGACY_TASKS:
         path = os.path.join(PLIST_DIR, task + ".plist")
         if os.path.exists(path):
             subprocess.run(["launchctl", "unload", path], capture_output=True)

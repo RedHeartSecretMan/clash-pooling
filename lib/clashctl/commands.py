@@ -32,7 +32,7 @@ def pool_order(pools):
     """
     try:
         text = open(platform.script_path(), encoding="utf-8").read()
-        alias_block = re.search(r"var ALIAS = \{(.*?)\};", text, re.S)
+        alias_block = re.search(r"var REGION_NAME = \{(.*?)\};", text, re.S)
         prefer_block = re.search(r"var PREFER = \[(.*?)\];", text, re.S)
         alias = {}
         if alias_block:
@@ -479,18 +479,23 @@ def sync():
 
     if os.path.exists(local_rules):
         body = open(local_rules, encoding="utf-8").read().strip()
-        injected = manifest.replace_marked(
-            out, "// >>> LOCAL-RULES-EXTRA", "// <<< LOCAL-RULES-EXTRA", body)
-        if injected is None:
-            print("  警告：脚本里没找到 LOCAL-RULES-EXTRA 标记块，本地规则未注入")
+        if not body:
+            print("  提示：clash/local/rules.local.js 为空，按未配置处理")
+        elif "LOCAL_RULES_EXTRA" not in body:
+            print("  警告：rules.local.js 里没有 LOCAL_RULES_EXTRA 声明，已跳过（否则脚本会引用未定义变量）")
         else:
-            out = injected
-            print("  已注入本地规则：%s" % local_rules)
+            injected = manifest.replace_marked(
+                out, "// >>> LOCAL-RULES-EXTRA", "// <<< LOCAL-RULES-EXTRA", body)
+            if injected is None:
+                print("  警告：脚本里没找到 LOCAL-RULES-EXTRA 标记块，本地规则未注入")
+            else:
+                out = injected
+                print("  已注入本地规则：%s" % local_rules)
 
     open(platform.script_path(), "w", encoding="utf-8").write(out)
     print("  已同步 Script.js（保留清单 %d 条）" % len(manifest.parse_manifest(target)))
 
-    if os.path.exists(local_merge):
+    if os.path.exists(local_merge) and open(local_merge, encoding="utf-8").read().strip():
         shutil.copy2(local_merge, platform.merge_path())
         print("  已同步 Merge.yaml（本地覆盖）")
     else:

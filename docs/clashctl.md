@@ -62,7 +62,7 @@ Windows 走 `external-controller` 的 TCP 地址；地址与密钥都从生成�
 
 ## 4. marker 语义
 
-`~/.dsh-clashctl/last-refresh` 记录：
+`~/.clash-pooling/last-refresh` 记录：
 
 ```json
 {"verified_at": "...", "profile_mtime": 1794362271,
@@ -82,7 +82,7 @@ Windows 走 `external-controller` 的 TCP 地址；地址与密钥都从生成�
 | `refresh-watch` | 每小时，跳过 01:00 | 订阅变了 | 全量核验 |
 | `refresh-watch` | 每小时，跳过 01:00 | 订阅没变 | 增量补测死节点 |
 
-锁文件 `~/.dsh-clashctl/refresh.lock` 保证同一时刻只有一个核验在跑（陈旧锁超过 3 小时自动清理）；
+锁文件 `~/.clash-pooling/refresh.lock` 保证同一时刻只有一个核验在跑（陈旧锁超过 3 小时自动清理）；
 核验结束后若清单没变化则不重启 Verge。
 
 ## 6. 失败处理

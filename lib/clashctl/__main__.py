@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from . import __version__, commands, scheduler, setup_console
+from . import __version__, commands, platform, scheduler, setup_console
 
 
 def build_parser():
@@ -46,6 +46,7 @@ def build_parser():
 
 def main(argv=None):
     setup_console()
+    platform.migrate_state_dir()      # 兼容 0.1.1 及更早的 ~/.dsh-clashctl
     args = build_parser().parse_args(argv)
     if not args.command:
         build_parser().print_help()

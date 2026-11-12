@@ -55,6 +55,30 @@ class LinuxTests(unittest.TestCase):
             self.assertEqual(platform.config_root(),
                              os.path.join("/tmp/clash-pooling-appdata", platform.APP_DIR))
 
+    # ---------------------------------------------------------- 状态目录
+    def test_state_dir_is_pure_read(self):
+        """state_dir() 只读：旧目录存在也不该被搬走"""
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy = Path(tmp) / "old"
+            legacy.mkdir()
+            (legacy / "marker").write_text("x", encoding="utf-8")
+            with patch.object(platform, "STATE_DIR", str(Path(tmp) / "new")), \
+                    patch.object(platform, "LEGACY_STATE_DIR", str(legacy)):
+                platform.state_dir()
+                self.assertTrue(legacy.exists(), "state_dir() 不应该动旧目录")
+
+    def test_migrate_state_dir_moves_legacy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy = Path(tmp) / "old"
+            legacy.mkdir()
+            (legacy / "marker").write_text("x", encoding="utf-8")
+            with patch.object(platform, "STATE_DIR", str(Path(tmp) / "new")), \
+                    patch.object(platform, "LEGACY_STATE_DIR", str(legacy)):
+                self.assertTrue(platform.migrate_state_dir())
+                self.assertFalse(legacy.exists())
+                self.assertTrue((Path(tmp) / "new" / "marker").exists())
+                self.assertFalse(platform.migrate_state_dir())   # 幂等
+
     # ---------------------------------------------------------- 控制接口
     def test_control_uses_generated_unix_socket(self):
         with patch.object(platform, "_parse_generated",
@@ -103,6 +127,21 @@ class LinuxTests(unittest.TestCase):
         run.assert_not_called()
 
     # -------------------------------------------------------------- 内核
+    def test_windows_core_prefers_readable_install_copy(self):
+        """service 目录对普通用户不可读时，要退回安装目录里的同名内核"""
+        def readable(path):
+            return "Program Files" in path
+        with patch.object(platform, "_readable", side_effect=readable), \
+                patch.multiple(platform, IS_WIN=True, IS_MAC=False, IS_LINUX=False), \
+                patch.dict(os.environ, {"ProgramFiles": r"C:\Program Files",
+                                        "ProgramData": r"C:\ProgramData"}):
+            self.assertIn("Program Files", platform.core_binary())
+
+    def test_core_binary_returns_empty_when_unreadable(self):
+        with patch.object(platform, "_readable", return_value=False), \
+                patch.multiple(platform, IS_WIN=True, IS_MAC=False, IS_LINUX=False):
+            self.assertEqual(platform.core_binary(), "")
+
     def test_core_binary_falls_back_to_path(self):
         with patch.object(platform.os, "access", return_value=False), \
                 patch.object(platform.shutil, "which", return_value="/usr/bin/verge-mihomo"):
@@ -163,6 +202,35 @@ class LinuxTests(unittest.TestCase):
             self.assertTrue(all(cmd[:2] == ["systemctl", "--user"] for cmd in commands))
             self.assertTrue(any("enable" in cmd and "--now" in cmd for cmd in commands))
             self.assertTrue(any("disable" in cmd and "--now" in cmd for cmd in commands))
+
+    def test_enable_drops_legacy_units(self):
+        """0.1.1 的旧任务名要在启用时被清掉，避免两套并存"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "systemd/user"
+            root.mkdir(parents=True)
+            for legacy in scheduler.LEGACY_TASKS:
+                (root / (legacy + ".timer")).write_text("[Timer]\n", encoding="utf-8")
+                (root / (legacy + ".service")).write_text("[Service]\n", encoding="utf-8")
+
+            run = self._systemd_env(tmp)
+            run.return_value = subprocess.CompletedProcess([], 0, stdout="active\n")
+            self.assertTrue(quiet(scheduler.enable))
+
+            leftovers = [p.name for p in root.glob("*") if "dsh" in p.name]
+            self.assertEqual(leftovers, [])
+            self.assertTrue(any("disable" in call.args[0] for call in run.call_args_list))
+
+    def test_macos_legacy_plist_removed(self):
+        """macOS 分支也要能清掉旧 plist（按平台分派后不应只在 Linux 生效）"""
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy = Path(tmp) / (scheduler.LEGACY_TASKS[0] + ".plist")
+            legacy.write_text("<plist/>", encoding="utf-8")
+            with patch.multiple(platform, IS_MAC=True, IS_WIN=False, IS_LINUX=False), \
+                    patch.object(scheduler, "PLIST_DIR", tmp), \
+                    patch.object(scheduler.subprocess, "run") as run:
+                scheduler._drop_legacy_jobs()
+                self.assertFalse(legacy.exists())
+                self.assertIn("unload", run.call_args.args[0])
 
     def test_systemd_failure_reports_hint_without_raising(self):
         with tempfile.TemporaryDirectory() as tmp:

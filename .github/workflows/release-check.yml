@@ -2,13 +2,15 @@ name: release-check
 
 # 发布后校验 Release 是否符合 docs/releasing.md：
 #   标题 v<版本> — <主题>
-#   正文首节是 ## 摘要
-#   不使用旧写法 ## 本版内容
+#   正文含 ## 摘要，且不含旧写法 ## 本版内容
+#   tag 版本与代码里的 __version__、CHANGELOG 顶部条目一致
 # 不合格时开一个 [发布检查] 的 issue 提醒，并让本次运行失败。
+# 也可以在 Actions 页面手动触发，复查当前最新 Release。
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,28 +23,65 @@ jobs:
       - uses: actions/github-script@v7
         with:
           script: |
-            const release = context.payload.release;
+            const { owner, repo } = context.repo;
+
+            const release = context.eventName === "release"
+              ? context.payload.release
+              : (await github.rest.repos.getLatestRelease({ owner, repo })).data;
+
             const title = (release.name || "").trim();
             const body = release.body || "";
+            const tag = release.tag_name || "";
             const problems = [];
 
+            // 1. 标题格式
             if (!/^v\d+\.\d+\.\d+ — \S/.test(title)) {
-              problems.push(`标题应为 \`v<版本> — <主题>\`（破折号是 —），当前是：\`${title || "(空)"}\``);
+              problems.push(`标题应为 \`v<版本> — <主题>\`（破折号是全角 —），当前是：\`${title || "(空)"}\``);
             }
+
+            // 2. 正文小节
             if (!/^##\s+摘要\s*$/m.test(body)) {
               problems.push("正文缺少 `## 摘要` 小节，规范要求首节是摘要");
             }
             if (/^##\s+本版内容\s*$/m.test(body)) {
-              problems.push("正文含 `## 本版内容`，这是旧写法，请按 docs/releasing.md 的小节模板改写");
+              problems.push("正文含 `## 本版内容`，这是旧写法，请按 docs/releasing.md 的模板改写");
+            }
+
+            // 3. 版本号一致性：tag ↔ __version__ ↔ CHANGELOG
+            const version = tag.replace(/^v/, "");
+            if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
+              problems.push(`tag 名应为 \`v<版本>\`，当前是 \`${tag}\``);
+            } else {
+              const readFile = async (path) => {
+                const res = await github.rest.repos.getContent({ owner, repo, path, ref: tag });
+                return Buffer.from(res.data.content, "base64").toString("utf-8");
+              };
+              try {
+                const init = await readFile("lib/clashctl/__init__.py");
+                const found = (init.match(/__version__\s*=\s*"([^"]+)"/) || [])[1];
+                if (found !== version) {
+                  problems.push(`\`__version__\` 是 ${found || "(未找到)"}，与 tag ${tag} 不一致`);
+                }
+              } catch (err) {
+                problems.push(`读不到 ${tag} 上的 lib/clashctl/__init__.py：${err.message}`);
+              }
+              try {
+                const changelog = await readFile("CHANGELOG.md");
+                if (!new RegExp(`^##\\s+\\[${version.replace(/\./g, "\\.")}\\]`, "m").test(changelog)) {
+                  problems.push(`CHANGELOG.md 里没有 \`## [${version}]\` 条目`);
+                }
+              } catch (err) {
+                problems.push(`读不到 ${tag} 上的 CHANGELOG.md：${err.message}`);
+              }
             }
 
             if (problems.length === 0) {
-              core.info(`release ${release.tag_name} 符合规范`);
+              core.info(`release ${tag} 符合规范`);
               return;
             }
 
             const lines = [
-              `发布 [${release.tag_name}](${release.html_url}) 不符合 [docs/releasing.md](../blob/main/docs/releasing.md) 的规范：`,
+              `发布 [${tag}](${release.html_url}) 不符合 [docs/releasing.md](../blob/main/docs/releasing.md) 的规范：`,
               "",
               ...problems.map((p) => `- ${p}`),
               "",
@@ -50,30 +89,19 @@ jobs:
             ].join("\n");
 
             // Release 本身不支持评论，用 issue 提醒；同一条 release 只开一个
-            const marker = `[发布检查] ${release.tag_name}`;
-            const open = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: "open",
-              per_page: 100,
-            });
+            const marker = `[发布检查] ${tag}`;
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: "open", per_page: 100 });
             const existing = open.data.find((issue) => issue.title.startsWith(marker));
             if (existing) {
               await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existing.number,
-                body: lines,
+                owner, repo, issue_number: existing.number, body: lines,
               });
               core.info(`已在 #${existing.number} 追加提醒`);
             } else {
               const created = await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: `${marker} 不符合发布规范`,
-                body: lines,
+                owner, repo, title: `${marker} 不符合发布规范`, body: lines,
               });
               core.info(`已创建提醒 issue #${created.data.number}`);
             }
 
-            core.setFailed(`Release ${release.tag_name} 不符合发布规范：${problems.join("；")}`);
+            core.setFailed(`Release ${tag} 不符合发布规范：${problems.join("；")}`);

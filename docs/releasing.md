@@ -9,6 +9,10 @@
   - `lib/clashctl/__init__.py` 的 `__version__`
   - `CHANGELOG.md` 顶部条目 `## [x.y.z] - YYYY-MM-DD`
   - git tag：`v` + 版本号，例如 `v0.1.2`
+`--verify-tag` 保证 tag 已存在时才建 Release；`--target` 把 Release 绑定到该 tag 的提交。
+少了这两个参数，Release 的 target 会被记成仓库默认分支（GitHub 页面显示 `main`），
+源码包虽然仍按 tag 生成，但元数据看起来像"跟着分支走"。
+
 - tag 一旦发布不再移动。发布内容有误时，改代码或文档后用下一个 patch 修正；
   只有 Release 的标题和正文可以直接编辑。
 - 0.x 阶段的例外：发布当天发现内容问题（错字、漏记、规范本身要改），可以覆盖重发一次——
@@ -32,7 +36,11 @@ git tag -a v0.1.2 -m "clash-pooling 0.1.2"
 git push origin main v0.1.2
 
 # 5. 建 Release（用文件传正文，避免 shell 转义问题）
-gh release create v0.1.2 --title "v0.1.2 — 一句话主题" --notes-file /tmp/notes.md
+gh release create v0.1.2 \
+  --verify-tag \
+  --target "$(git rev-parse v0.1.2^{commit})" \
+  --title "v0.1.2 — 一句话主题" \
+  --notes-file /tmp/notes.md
 ```
 
 ## Release 标题
@@ -100,6 +108,10 @@ v0.1.1 — Linux 支持
 | 标题 | 匹配 `v<版本> — <主题>` |
 | 摘要 | 正文含 `## 摘要` |
 | 旧写法 | 正文不含 `## 本版内容` |
+| 版本一致 | `lib/clashctl/__init__.py` 的 `__version__` 与 tag 相同 |
+| 变更记录 | `CHANGELOG.md` 有对应的 `## [<版本>]` 条目 |
+
+也可以在 Actions 页面手动触发这个 workflow（`workflow_dispatch`），复查当前最新 Release。
 
 不合格时开一个 `[发布检查] <tag>` 的 issue（同一 tag 只开一个，重复触发改为追加评论），
 并让该次运行失败。GitHub Release 不支持评论，所以提醒落在 issue 上。

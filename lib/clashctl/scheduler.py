@@ -112,6 +112,7 @@ def disable():
 
 
 def _plist(label, args, extra):
+    stderr_path = os.path.join(platform.state_dir(), label.split(".")[-1] + ".err")
     return """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -123,11 +124,12 @@ def _plist(label, args, extra):
 {argv}
   </array>
 {extra}
-  <key>StandardErrorPath</key><string>/tmp/{label}.err</string>
+  <key>StandardErrorPath</key><string>{stderr_path}</string>
 </dict>
 </plist>
 """.format(
         label=label,
+        stderr_path=stderr_path,
         exe=_launcher(),
         argv="\n".join("    <string>%s</string>" % a for a in args),
         extra=extra,

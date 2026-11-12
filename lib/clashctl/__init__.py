@@ -1,6 +1,6 @@
 """clash-pooling：按实测出口地区划分 Clash 节点池。"""
 
-__version__ = "0.2.0"
+__version__ = "0.1.1"
 
 
 def setup_console():

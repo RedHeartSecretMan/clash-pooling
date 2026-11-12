@@ -24,7 +24,7 @@ def config_root():
         return os.path.join(os.environ.get("APPDATA", ""), APP_DIR)
     if IS_LINUX:
         return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), APP_DIR)
-    return os.path.expanduser("~/Library/Application Support/" + APP_DIR)
+    return os.path.join(os.path.expanduser("~/Library/Application Support"), APP_DIR)
 
 
 def profiles_dir():

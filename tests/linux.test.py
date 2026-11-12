@@ -37,21 +37,23 @@ class LinuxTests(unittest.TestCase):
     # ---------------------------------------------------------------- 路径
     def test_xdg_data_path(self):
         with patch.dict(os.environ, {"XDG_DATA_HOME": "/tmp/clash-pooling-data"}):
-            self.assertEqual(platform.config_root(), "/tmp/clash-pooling-data/" + platform.APP_DIR)
+            self.assertEqual(platform.config_root(),
+                             os.path.join("/tmp/clash-pooling-data", platform.APP_DIR))
 
     def test_default_data_path(self):
         with patch.dict(os.environ, {"XDG_DATA_HOME": ""}):
             self.assertEqual(platform.config_root(),
-                             os.path.expanduser("~/.local/share/") + platform.APP_DIR)
+                             os.path.join(os.path.expanduser("~/.local/share"), platform.APP_DIR))
 
     def test_macos_and_windows_config_paths(self):
         with patch.multiple(platform, IS_LINUX=False, IS_MAC=True, IS_WIN=False):
             self.assertEqual(platform.config_root(),
-                             os.path.expanduser("~/Library/Application Support/") + platform.APP_DIR)
+                             os.path.join(os.path.expanduser("~/Library/Application Support"),
+                                          platform.APP_DIR))
         with patch.multiple(platform, IS_LINUX=False, IS_MAC=False, IS_WIN=True), \
                 patch.dict(os.environ, {"APPDATA": "/tmp/clash-pooling-appdata"}):
             self.assertEqual(platform.config_root(),
-                             "/tmp/clash-pooling-appdata/" + platform.APP_DIR)
+                             os.path.join("/tmp/clash-pooling-appdata", platform.APP_DIR))
 
     # ---------------------------------------------------------- 控制接口
     def test_control_uses_generated_unix_socket(self):

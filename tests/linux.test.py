@@ -178,6 +178,13 @@ class LinuxTests(unittest.TestCase):
             unit = scheduler._systemd_service()
         self.assertIn("price$$usd%%20", unit)
 
+    def test_launcher_prefers_windows_install_path(self):
+        with patch.multiple(platform, IS_WIN=True, IS_LINUX=False), \
+                patch.object(scheduler.os.environ, "get", return_value="C:/Users/x/AppData/Local"), \
+                patch.object(sys, "argv", ["-c"]), \
+                patch.object(scheduler.os.path, "isfile", side_effect=lambda p: "clash-pooling" in p):
+            self.assertIn("clash-pooling", scheduler._launcher())
+
     def test_launcher_rejects_python_dash_c(self):
         with patch.object(sys, "argv", ["-c"]), \
                 patch.object(scheduler.os.path, "isfile", side_effect=lambda p: p.endswith(".local/bin/clashctl")):

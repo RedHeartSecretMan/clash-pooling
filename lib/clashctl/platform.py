@@ -200,6 +200,11 @@ def app_exe():
     if IS_MAC:
         return "/Applications/Clash Verge.app"
     if IS_LINUX:
+        # 常见安装方式：发行版包、官方 deb、解包目录；AppImage 需要自己在 PATH 里
+        for candidate in ("/usr/bin/clash-verge", "/opt/clash-verge/clash-verge",
+                          os.path.expanduser("~/.local/bin/clash-verge")):
+            if os.access(candidate, os.X_OK):
+                return candidate
         return shutil.which("clash-verge") or ""
     if not IS_WIN:
         return ""

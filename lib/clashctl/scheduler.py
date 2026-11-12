@@ -78,10 +78,14 @@ def _launcher():
     usable = os.path.isfile(path) and os.path.basename(path) not in ("-c", "__main__.py")
     if usable:
         return path
-    fallback = os.path.expanduser("~/.local/bin/clashctl")
-    if os.path.isfile(fallback):
-        return fallback
-    raise RuntimeError("找不到 clashctl 启动器路径，请直接运行 clashctl auto enable")
+    candidates = [os.path.expanduser("~/.local/bin/clashctl")]
+    if platform.IS_WIN:
+        candidates.insert(0, os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                                          "clash-pooling", "bin", "clashctl"))
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    raise RuntimeError("找不到 clashctl 启动器路径；请用安装后的 clashctl 命令执行 auto enable")
 
 
 # ------------------------------------------------------------------ 安装/卸载

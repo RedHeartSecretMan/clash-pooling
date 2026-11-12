@@ -11,7 +11,7 @@
 - **Linux 支持**（#1、#2，贡献者 @AiKiAi-stack）：配置目录改用 XDG 数据目录、
   控制接口从生成配置读取、systemd 用户定时器、`clash-verge` 应用重启、GNOME 系统代理检查。
 - 新增 `docs/linux.md`：路径、安装、systemd 命令、桌面会话要求与故障排查。
-- 新增 `tests/linux.test.py`：16 项用例覆盖 XDG 路径、控制接口优先级与回退、应用重启、
+- 新增 `tests/linux.test.py`：17 项用例覆盖 XDG 路径、控制接口优先级与回退、应用重启、
   内核查找、GNOME 代理、systemd 注册/查询/停用与转义。全部用打补丁的临时环境，
   macOS、Windows、Linux 三端都会执行（Windows 上通过 `run.ps1` 一并运行）。
 - 新增 `CLASH_CORE` 环境变量，用于指定 AppImage 等非常规布局下的内核路径。

@@ -212,6 +212,7 @@ def _enable():
         return True
 
     os.makedirs(PLIST_DIR, exist_ok=True)
+    os.makedirs(platform.state_dir(), exist_ok=True)   # plist 的 stderr 落在这里
     watch_path = os.path.join(PLIST_DIR, TASK_WATCH + ".plist")
     daily_path = os.path.join(PLIST_DIR, TASK_DAILY + ".plist")
     _write_plist(watch_path, _plist(

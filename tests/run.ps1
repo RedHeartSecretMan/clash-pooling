@@ -25,6 +25,9 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) {
     & node tests\groups.test.cjs
     if ($LASTEXITCODE -ne 0) { $fail = 1 }
+} elseif ($env:CI) {
+    Write-Host '  CI 环境缺少 Node.js：分组测试必须执行，不允许跳过'
+    $fail = 1
 } else {
     Write-Host '  跳过：未安装 Node.js（该测试需要执行 Script.js 的 JS 逻辑）'
 }

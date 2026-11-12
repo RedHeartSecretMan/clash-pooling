@@ -10,6 +10,9 @@ fail=0
 echo "== 分组与规则 =="
 if command -v node >/dev/null 2>&1; then
   node tests/groups.test.cjs || fail=1
+elif [ -n "${CI:-}" ]; then
+  echo "  CI 环境缺少 Node.js：分组测试必须执行，不允许跳过"
+  fail=1
 else
   echo "  跳过：未安装 Node.js（该测试需要执行 Script.js 的分组逻辑）"
 fi

@@ -4,6 +4,32 @@
 
 项目从 `0.1.0` 起步；此前的内部演进不单独记版本。
 
+## [0.2.0] - 2026-11-12
+
+### Added
+
+- **Linux 支持**（#1、#2，贡献者 @AiKiAi-stack）：配置目录改用 XDG 数据目录、
+  控制接口从生成配置读取、systemd 用户定时器、`clash-verge` 应用重启、GNOME 系统代理检查。
+- 新增 `docs/linux.md`：路径、安装步骤、systemd 命令、桌面会话要求与排障。
+- `tests/linux.test.py`：14 项用例覆盖 XDG 路径、控制接口回退、应用重启、内核查找、
+  GNOME 代理与 systemd 注册/查询/停用；全部用打补丁的临时环境，非 Linux 机器同样执行。
+- 新增 `CLASH_CORE` 环境变量，用于指定 AppImage 等非常规布局下的内核路径。
+
+### Changed
+
+- 控制接口在没有 unix socket 的平台上退回 `external-controller` 的 TCP 地址，
+  不再把 macOS 的 service socket 路径当作通用假设。
+- `auto status` 在 Linux 上与其他平台输出一致（每小时巡检 ｜ 每天 01:00 全量）。
+
+### Fixed
+
+- systemd 每日定时器补 `Persistent=true`：关机或休眠错过 01:00 会在开机后补跑，
+  与 launchd、Windows 任务计划程序对齐。
+- `systemctl --user` 失败时不再抛 `CalledProcessError`，改为打印失败原因与排查提示。
+- `-c` / `-m` 方式调用时启动器路径被误当成 `-c`，生成的 systemd 单元不可用；
+  现在回退到安装位置。
+- Linux 内核查找覆盖服务模式、官方包与 AUR 布局，不再只看一个路径。
+
 ## [0.1.0] - 2026-11-11
 
 首个版本。

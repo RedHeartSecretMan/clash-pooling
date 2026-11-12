@@ -102,10 +102,19 @@ def control():
         host, _, port = addr.rpartition(":")
         return "tcp", (host or "127.0.0.1", int(port or 9097)), secret
     sock = os.environ.get("CLASH_SOCK")
-    if not sock:
+    if not sock and IS_MAC:
+        # macOS 的 service 模式会把 mihomo 的控制 socket 放到这里
         service = "/var/run/clash-verge-service/users/%d/verge-mihomo.sock" % os.getuid()
         sock = service if os.path.exists(service) else cfg["unix"]
-    return "unix", sock, secret
+    if not sock:
+        sock = cfg["unix"]
+    if sock:
+        return "unix", sock, secret
+
+    # 配置里没有 unix socket（只开了 TCP 的情况）：退回 TCP
+    addr = os.environ.get("CLASH_CONTROLLER") or cfg["controller"] or "127.0.0.1:9097"
+    host, _, port = addr.rpartition(":")
+    return "tcp", (host or "127.0.0.1", int(port or 9097)), secret
 
 
 def system_proxy():
@@ -157,14 +166,23 @@ def mixed_port():
 # ---------------------------------------------------------------- 内核与应用
 
 def core_binary():
+    override = os.environ.get("CLASH_CORE")
+    if override:
+        return override
     if IS_MAC:
         return "/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo"
     if IS_WIN:
         root = os.environ.get("ProgramData", r"C:\ProgramData")
         return os.path.join(root, "clash-verge-service", "cores", "verge-mihomo.exe")
-    service_core = "/var/lib/clash-verge-service/cores/verge-mihomo"
-    if IS_LINUX and os.access(service_core, os.X_OK):
-        return service_core
+    if IS_LINUX:
+        # 不同打包方式放内核的位置不一样：服务模式、deb/rpm、AppImage 解包目录
+        for candidate in (
+            "/var/lib/clash-verge-service/cores/verge-mihomo",
+            "/usr/lib/Clash Verge/resources/verge-mihomo",
+            "/usr/lib/clash-verge/verge-mihomo",
+        ):
+            if os.access(candidate, os.X_OK):
+                return candidate
     return shutil.which("verge-mihomo") or ""
 
 

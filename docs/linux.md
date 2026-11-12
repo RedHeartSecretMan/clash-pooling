@@ -28,18 +28,22 @@
 |---|---|
 | Clash 数据 | `~/.local/share/io.github.clash-verge-rev.clash-verge-rev/`；支持 `XDG_DATA_HOME` |
 | systemd unit | `~/.config/systemd/user/`；支持 `XDG_CONFIG_HOME` |
-| service 控制接口 | `/run/clash-verge-service/users/<uid>/verge-mihomo.sock` |
 | 日志与核验状态 | `~/.dsh-clashctl/` |
 
-控制接口优先使用当前用户的 service socket，再使用生成配置里的 `external-controller-unix`。
-可用 `CLASH_SOCK` 指定其他 socket。内核优先使用可执行的
-`/var/lib/clash-verge-service/cores/verge-mihomo`，否则查找 PATH 中的 `verge-mihomo`。
+控制接口从 Clash Verge 生成的配置里读：有 `external-controller-unix` 就走 unix socket，
+没有就退回 `external-controller` 的 TCP 地址。需要临时指定时用 `CLASH_SOCK`（socket）
+或 `CLASH_CONTROLLER`（`host:port`）。
+
+内核按顺序找：`/var/lib/clash-verge-service/cores/verge-mihomo`（服务模式）、
+`/usr/lib/Clash Verge/resources/verge-mihomo`（官方包）、`/usr/lib/clash-verge/verge-mihomo`，
+最后用 PATH 里的 `verge-mihomo`。AppImage 解包目录可用 `CLASH_CORE` 之类的方式自行确认。
 
 GNOME 系统代理状态通过 `gsettings` 读取。其他桌面环境的系统代理检查会显示跳过。
 
 ## 定时任务
 
-每小时巡检从启用后一小时开始；每日全量在本机时区 01:00 执行。
+每小时巡检从启用后一小时开始；每日全量在本机时区 01:00 执行，带 `Persistent=true`——
+关机或休眠错过时间点，会在下次开机后补跑一次（与 macOS launchd、Windows 任务计划程序的行为一致）。
 `auto disable` 会停用两个 timer 并移除 unit 文件；已经开始的核验会完成本轮。
 
 ```bash
@@ -62,8 +66,9 @@ Flatpak、容器、无桌面的服务器，以及使用其他配置布局的安�
 ## 测试
 
 ```bash
-CLASH_SCRIPT="$PWD/clash/Script.js" bash tests/run.sh
+./tests/run.sh
 ```
 
-Linux 回归测试使用临时目录和模拟进程，覆盖路径、应用重启、systemd 注册、查询和停用；
-macOS / Windows 配置路径也通过模拟平台检查。
+`tests/linux.test.py` 的 14 项用例全部用打补丁的临时环境，覆盖 XDG 路径、控制接口回退、
+应用重启、内核查找、GNOME 代理、systemd 注册/查询/停用与转义，因此在 macOS 上也会执行，
+非 Linux 机器也能拦住 Linux 分支的回归。

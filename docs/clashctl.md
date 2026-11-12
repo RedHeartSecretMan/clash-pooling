@@ -108,7 +108,7 @@ lib/clashctl/
   platform.py                平台差异：路径、端点、内核、重启、调度
   scheduler.py               定时核验：launchd / 任务计划程序
   manifest.py                清单解析、增量决策、块替换（纯函数）
-tests/                       三个缝：Script.js 分组逻辑、manifest 纯函数、敏感内容扫描
+tests/                       四个入口：分组逻辑、清单纯函数、Linux 平台回归、敏感内容扫描
 ```
 
 全部逻辑用 Python 标准库实现，macOS、Windows 与 Linux 共用同一份代码。

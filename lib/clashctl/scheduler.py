@@ -13,6 +13,22 @@ TASK_DAILY = "work.dsh.clashctl-refresh-daily"
 PLIST_DIR = os.path.expanduser("~/Library/LaunchAgents")
 
 
+def _systemctl(*args):
+    """调用 systemctl --user；失败时打印可执行的下一步，返回是否成功"""
+    try:
+        result = subprocess.run(["systemctl", "--user"] + list(args),
+                                capture_output=True, text=True)
+    except OSError as exc:
+        print("  无法运行 systemctl：%s" % exc)
+        return False
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        print("  systemctl %s 失败：%s" % (" ".join(args), detail[0] if detail else "未知错误"))
+        print("  提示：需要在已登录的桌面用户里执行；远程会话可先运行 systemctl --user status 自检")
+        return False
+    return True
+
+
 def _systemd_dir():
     root = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
     return os.path.join(root, "systemd", "user")
@@ -37,15 +53,29 @@ def _linux_enable():
         with open(os.path.join(root, name + ".service"), "w", encoding="utf-8") as f:
             f.write(_systemd_service(full=full))
         with open(os.path.join(root, name + ".timer"), "w", encoding="utf-8") as f:
-            f.write("[Unit]\nDescription=Clash pooling scheduled verification\n[Timer]\n" + trigger +
-                    "\n[Install]\nWantedBy=timers.target\n")
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-    subprocess.run(["systemctl", "--user", "enable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer"], check=True)
+            body = "[Unit]\nDescription=Clash pooling scheduled verification\n[Timer]\n" + trigger
+            if full:
+                body += "\nPersistent=true"      # 关机/休眠错过 01:00 时，开机后补跑
+            body += "\n[Install]\nWantedBy=timers.target\n"
+            f.write(body)
+    if not _systemctl("daemon-reload"):
+        return
+    if not _systemctl("enable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer"):
+        return
     print("已启用 systemd 用户定时器：每天 01:00 全量 + 每小时巡检")
+    print("  日志：journalctl --user -u %s.service" % TASK_WATCH)
 
 
 def _launcher():
-    return os.path.abspath(sys.argv[0])
+    """入口脚本的绝对路径；被 python -c / -m 调用时回退到安装位置"""
+    path = os.path.abspath(sys.argv[0])
+    usable = os.path.isfile(path) and os.path.basename(path) not in ("-c", "__main__.py")
+    if usable:
+        return path
+    fallback = os.path.expanduser("~/.local/bin/clashctl")
+    if os.path.isfile(fallback):
+        return fallback
+    raise RuntimeError("找不到 clashctl 启动器路径，请直接运行 clashctl auto enable")
 
 
 # ------------------------------------------------------------------ 安装/卸载
@@ -134,14 +164,14 @@ def enable():
 
 def disable():
     if platform.IS_LINUX:
-        subprocess.run(["systemctl", "--user", "disable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer"], check=True)
+        _systemctl("disable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer")
         for name in (TASK_WATCH, TASK_DAILY):
             for suffix in (".timer", ".service"):
                 try:
                     os.remove(os.path.join(_systemd_dir(), name + suffix))
                 except FileNotFoundError:
                     pass
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        _systemctl("daemon-reload")
         print("已停用定时核验")
         return
     if platform.IS_WIN:
@@ -159,9 +189,13 @@ def disable():
 
 def status():
     if platform.IS_LINUX:
-        for name in (TASK_WATCH, TASK_DAILY):
-            state = subprocess.run(["systemctl", "--user", "is-active", name + ".timer"], capture_output=True, text=True)
-            print("  %s: %s" % (name, state.stdout.strip()))
+        def running(name):
+            out = subprocess.run(["systemctl", "--user", "is-active", name + ".timer"],
+                                 capture_output=True, text=True).stdout.strip()
+            return out == "active"
+
+        print("  定时任务：%s ｜ %s" % ("每小时巡检" if running(TASK_WATCH) else "未启用",
+                                     "每天 01:00 全量" if running(TASK_DAILY) else "未启用"))
     elif platform.IS_WIN:
         def installed(task):
             out = subprocess.run("schtasks /Query /TN %s" % task, shell=True,

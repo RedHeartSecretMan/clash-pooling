@@ -20,8 +20,8 @@ clashctl（外部，能联网）         Script.js（Clash 内，不能联网）
 | 核验 | `exit-check` `auto` | 改清单、可能重启 Verge |
 | 维护 | `audit` `doctor` `backup` | 只读或写备份 |
 
-与内核的交互不依赖界面：macOS / Linux 走 unix socket，Windows 走 `external-controller` 的 TCP 地址，
-两者的地址与密钥都从生成后的配置里读取。
+与内核的交互不依赖界面：macOS / Linux 优先用 unix socket（文件存在才用，否则退回 TCP），
+Windows 走 `external-controller` 的 TCP 地址；地址与密钥都从生成后的配置里读取。
 
 ## 3. 核验流水线
 
@@ -106,7 +106,7 @@ lib/clashctl/
   probe.py                   HTTP 探测（标准库，不依赖 curl）
   api.py                     mihomo 控制接口（unix socket / TCP）
   platform.py                平台差异：路径、端点、内核、重启、调度
-  scheduler.py               定时核验：launchd / 任务计划程序
+  scheduler.py               定时核验：launchd / 任务计划程序 / systemd 用户定时器
   manifest.py                清单解析、增量决策、块替换（纯函数）
 tests/                       四个入口：分组逻辑、清单纯函数、Linux 平台回归、敏感内容扫描
 ```

@@ -1,24 +1,33 @@
+#!/usr/bin/env python3
 """Linux 相关回归：路径、控制接口、应用重启、systemd 用户定时器。
 
 这些用例都用打补丁的方式模拟平台，因此在 macOS / Linux 上都能跑，
 能在非 Linux 开发机上发现 Linux 分支的回归。
 """
 
+import io
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 
-from clashctl import platform, scheduler
+from clashctl import platform, scheduler, setup_console
+
+setup_console()
 
 
-@unittest.skipIf(os.name == "nt", "用例依赖 POSIX 的 os.getuid")
+def quiet(func, *args, **kwargs):
+    """调用会打印进度的函数，但把输出吞掉，保持测试报告干净"""
+    with redirect_stdout(io.StringIO()):
+        return func(*args, **kwargs)
+
+
 class LinuxTests(unittest.TestCase):
     def setUp(self):
         patch.multiple(platform, IS_MAC=False, IS_WIN=False, IS_LINUX=True,
@@ -48,24 +57,41 @@ class LinuxTests(unittest.TestCase):
     def test_control_uses_generated_unix_socket(self):
         with patch.object(platform, "_parse_generated",
                           return_value={"controller": "", "secret": "s",
-                                        "mixed_port": 7897, "unix": "/run/user/1000/mihomo.sock"}):
+                                        "mixed_port": 7897, "unix": "/run/user/1000/mihomo.sock"}), \
+                patch.object(platform.os.path, "exists", return_value=True):
             self.assertEqual(platform.control(), ("unix", "/run/user/1000/mihomo.sock", "s"))
 
-    def test_control_falls_back_to_tcp_without_unix(self):
+    def test_control_falls_back_to_tcp_when_socket_missing(self):
+        """配置里的 socket 已失效（文件不在）时不要拿它去连"""
         with patch.object(platform, "_parse_generated",
                           return_value={"controller": "127.0.0.1:9097", "secret": "s",
-                                        "mixed_port": 7897, "unix": ""}):
+                                        "mixed_port": 7897, "unix": "/run/user/1000/gone.sock"}), \
+                patch.object(platform.os.path, "exists", return_value=False):
             self.assertEqual(platform.control(), ("tcp", ("127.0.0.1", 9097), "s"))
+
+    def test_control_honours_explicit_overrides(self):
+        cfg = {"controller": "127.0.0.1:9097", "secret": "s", "mixed_port": 7897, "unix": "/run/x.sock"}
+        with patch.object(platform, "_parse_generated", return_value=cfg), \
+                patch.object(platform.os.path, "exists", return_value=True):
+            with patch.dict(os.environ, {"CLASH_CONTROLLER": "127.0.0.1:9999"}):
+                self.assertEqual(platform.control()[1], ("127.0.0.1", 9999))
+            with patch.dict(os.environ, {"CLASH_SOCK": "/tmp/custom.sock"}):
+                self.assertEqual(platform.control(), ("unix", "/tmp/custom.sock", "s"))
+
+    def test_core_binary_override(self):
+        with patch.dict(os.environ, {"CLASH_CORE": "/opt/mihomo"}):
+            self.assertEqual(platform.core_binary(), "/opt/mihomo")
 
     # -------------------------------------------------------------- 重启
     def test_restart_uses_linux_application(self):
         with patch.object(platform.shutil, "which", return_value="/usr/bin/clash-verge"), \
                 patch.object(platform.subprocess, "run") as run, \
                 patch.object(platform.subprocess, "Popen") as launch, \
-                patch.object(platform.time, "sleep"):
+                patch.object(platform.time, "sleep"), \
+                patch.object(platform.os, "getuid", return_value=1000, create=True):
             self.assertTrue(platform.restart_app())
         self.assertEqual(run.call_args.args[0],
-                         ["pkill", "-TERM", "-u", str(os.getuid()), "-x", "clash-verge"])
+                         ["pkill", "-TERM", "-u", "1000", "-x", "clash-verge"])
         self.assertEqual(launch.call_args.args[0], ["/usr/bin/clash-verge"])
 
     def test_restart_missing_executable_does_not_kill_running_app(self):
@@ -111,22 +137,24 @@ class LinuxTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run = self._systemd_env(tmp)
             run.return_value = subprocess.CompletedProcess([], 0, stdout="active\n")
-            scheduler.enable()
+            self.assertTrue(quiet(scheduler.enable))
 
             root = Path(tmp) / "systemd/user"
             daily = (root / (scheduler.TASK_DAILY + ".service")).read_text(encoding="utf-8")
             watch = (root / (scheduler.TASK_WATCH + ".service")).read_text(encoding="utf-8")
             self.assertIn('"/tmp/路径 含空格/clashctl" "auto" "run" "--full"', daily)
+            self.assertIn("KillMode=process", daily)             # 否则 oneshot 结束会杀掉刚重启的 GUI
             self.assertNotIn('"--full"', watch)
 
             daily_timer = (root / (scheduler.TASK_DAILY + ".timer")).read_text(encoding="utf-8")
             self.assertIn("OnCalendar=*-*-* 01:00:00", daily_timer)
             self.assertIn("Persistent=true", daily_timer)          # 关机错过要补跑
-            self.assertIn("OnUnitActiveSec=1h",
-                          (root / (scheduler.TASK_WATCH + ".timer")).read_text(encoding="utf-8"))
+            watch_timer = (root / (scheduler.TASK_WATCH + ".timer")).read_text(encoding="utf-8")
+            self.assertIn("OnActiveSec=1min", watch_timer)        # 与另两个平台一样，启用后很快跑第一次
+            self.assertIn("OnUnitActiveSec=1h", watch_timer)
 
-            scheduler.status()
-            scheduler.disable()
+            quiet(scheduler.status)
+            self.assertTrue(quiet(scheduler.disable))
             self.assertEqual(list(root.glob("*")), [])
 
             commands = [call.args[0] for call in run.call_args_list]
@@ -138,7 +166,7 @@ class LinuxTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run = self._systemd_env(tmp)
             run.return_value = subprocess.CompletedProcess([], 1, stderr="Failed to connect to bus")
-            scheduler.enable()      # 不应抛异常，只打印提示
+            self.assertFalse(quiet(scheduler.enable))      # 不抛异常，返回失败
             commands = [call.args[0] for call in run.call_args_list]
             self.assertTrue(any("daemon-reload" in cmd for cmd in commands))
             self.assertFalse(any("enable" in cmd for cmd in commands))   # 失败后不再往下执行

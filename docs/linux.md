@@ -34,22 +34,23 @@
 没有就退回 `external-controller` 的 TCP 地址。需要临时指定时用 `CLASH_SOCK`（socket）
 或 `CLASH_CONTROLLER`（`host:port`）。
 
-内核按顺序找：`/var/lib/clash-verge-service/cores/verge-mihomo`（服务模式）、
-`/usr/lib/Clash Verge/resources/verge-mihomo`（官方包）、`/usr/lib/clash-verge/verge-mihomo`，
-最后用 PATH 里的 `verge-mihomo`。AppImage 解包目录可用 `CLASH_CORE` 之类的方式自行确认。
+内核查找顺序：`CLASH_CORE`（显式指定，优先级最高）→ `/var/lib/clash-verge-service/cores/verge-mihomo`
+（服务模式）→ `/usr/lib/Clash Verge/resources/verge-mihomo`（官方包）→ `/usr/lib/clash-verge/verge-mihomo`
+→ PATH 里的 `verge-mihomo`。用 AppImage 或自定义布局时，直接设 `CLASH_CORE=/path/to/verge-mihomo` 即可。
 
 GNOME 系统代理状态通过 `gsettings` 读取。其他桌面环境的系统代理检查会显示跳过。
 
 ## 定时任务
 
-每小时巡检从启用后一小时开始；每日全量在本机时区 01:00 执行，带 `Persistent=true`——
-关机或休眠错过时间点，会在下次开机后补跑一次（与 macOS launchd、Windows 任务计划程序的行为一致）。
+启用后 1 分钟先跑一次巡检，之后每小时一次；每日全量在本机时区 01:00 执行，带 `Persistent=true`——
+关机或休眠错过时间点，会在下次开机后补跑一次。Windows 的 `StartWhenAvailable` 行为一致；
+macOS launchd 只在唤醒后补跑，关机期间错过的不执行。
 `auto disable` 会停用两个 timer 并移除 unit 文件；已经开始的核验会完成本轮。
 
 ```bash
 systemctl --user list-timers 'work.dsh.clashctl-refresh-*'
 journalctl --user -u work.dsh.clashctl-refresh-watch.service
-clashctl auto disable
+~/.local/bin/clashctl auto disable
 ```
 
 用户管理器需要处于运行状态。电脑关机或休眠时不会执行核验。
@@ -62,6 +63,17 @@ systemctl --user show-environment
 
 若 `systemctl --user` 报无法连接总线，请在已登录的桌面用户终端运行。
 Flatpak、容器、无桌面的服务器，以及使用其他配置布局的安装方式需要单独适配。
+
+## 故障排查
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `auto enable` 提示「需要在已登录的桌面用户里执行」 | 用户管理器连不上（SSH 会话、没有 lingering） | 在桌面终端执行，或 `loginctl enable-linger $USER` 后重新登录 |
+| `auto status` 显示「未知（systemctl 不可用）」 | 机器上没有 systemd 用户管理器 | 退回手动执行 `~/.local/bin/clashctl auto run`，或用系统级 timer |
+| 定时核验跑完，但 Clash Verge 没被重开 | 用户管理器里没有图形会话环境变量 | `systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY` 后重试 |
+| `doctor` 报找不到内核 | AppImage 或非标准布局 | `export CLASH_CORE=/path/to/verge-mihomo`，或把 `verge-mihomo` 加进 PATH |
+| 控制接口连不上 | socket 已失效，或 Clash 只开了 TCP | 用 `CLASH_SOCK` / `CLASH_CONTROLLER` 指定；`doctor` 会打印当前端点 |
+| 想看核验日志 | 定时任务的输出不写入文件 | `journalctl --user -u work.dsh.clashctl-refresh-watch.service`；手动执行时日志在 `~/.dsh-clashctl/auto.log` |
 
 ## 测试
 

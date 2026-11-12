@@ -10,25 +10,31 @@
 
 - **Linux 支持**（#1、#2，贡献者 @AiKiAi-stack）：配置目录改用 XDG 数据目录、
   控制接口从生成配置读取、systemd 用户定时器、`clash-verge` 应用重启、GNOME 系统代理检查。
-- 新增 `docs/linux.md`：路径、安装步骤、systemd 命令、桌面会话要求与排障。
-- `tests/linux.test.py`：14 项用例覆盖 XDG 路径、控制接口回退、应用重启、内核查找、
-  GNOME 代理与 systemd 注册/查询/停用；全部用打补丁的临时环境，非 Linux 机器同样执行。
+- 新增 `docs/linux.md`：路径、安装、systemd 命令、桌面会话要求与故障排查。
+- 新增 `tests/linux.test.py`：16 项用例覆盖 XDG 路径、控制接口优先级与回退、应用重启、
+  内核查找、GNOME 代理、systemd 注册/查询/停用与转义。全部用打补丁的临时环境，
+  macOS、Windows、Linux 三端都会执行（Windows 上通过 `run.ps1` 一并运行）。
 - 新增 `CLASH_CORE` 环境变量，用于指定 AppImage 等非常规布局下的内核路径。
 
 ### Changed
 
-- 控制接口在没有 unix socket 的平台上退回 `external-controller` 的 TCP 地址，
-  不再把 macOS 的 service socket 路径当作通用假设。
-- `auto status` 在 Linux 上与其他平台输出一致（每小时巡检 ｜ 每天 01:00 全量）。
+- 控制接口的取值顺序明确为：`CLASH_CONTROLLER` → `CLASH_SOCK` → 生成配置里的
+  unix socket（文件存在才用）→ 生成配置里的 TCP 地址。socket 文件不存在时退回 TCP，
+  不再拿过期路径去连。
+- `auto status` 在 Linux 上与其他平台同一套输出；`systemctl` 不可用时显示「未知」而不是报错。
+- `auto enable` / `auto disable` 失败时返回非零退出码，不再静默成功。
 
 ### Fixed
 
-- systemd 每日定时器补 `Persistent=true`：关机或休眠错过 01:00 会在开机后补跑，
-  与 launchd、Windows 任务计划程序对齐。
-- `systemctl --user` 失败时不再抛 `CalledProcessError`，改为打印失败原因与排查提示。
+- systemd 单元补 `KillMode=process`：oneshot 结束时默认会清空整个 cgroup，
+  把刚被重启拉起的 Clash Verge 一起 SIGTERM，重启等于没做。
+- systemd 每日定时器补 `Persistent=true`：关机或休眠错过 01:00 会在开机后补跑；
+  Windows 的 `StartWhenAvailable` 行为一致，launchd 只在唤醒后补跑、关机期间错过的不执行。
+- 巡检首次触发从「启用后 1 小时」改为 1 分钟，与 macOS（RunAtLoad）、Windows（+1 分钟）对齐。
+- `systemctl --user` 失败时不再抛 `CalledProcessError`；`disable` 失败时保留单元文件并说明原因。
 - `-c` / `-m` 方式调用时启动器路径被误当成 `-c`，生成的 systemd 单元不可用；
-  现在回退到安装位置。
-- Linux 内核查找覆盖服务模式、官方包与 AUR 布局，不再只看一个路径。
+  现在回退到安装位置，取不到时提示而不是抛栈。
+- Linux 内核查找覆盖服务模式与官方包布局，不再只看一个路径。
 
 ## [0.1.0] - 2026-11-11
 

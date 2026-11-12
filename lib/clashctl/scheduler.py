@@ -40,15 +40,18 @@ def _systemd_service(full=False):
         args.append("--full")
     command = " ".join('"' + a.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$") + '"' for a in args)
     # 使用用户管理器的当前桌面环境，避免把本次登录的 XAUTHORITY 固定在 unit 中。
-    return ("[Unit]\nDescription=Clash pooling exit verification\nAfter=network-online.target\n"
+    # KillMode=process：只杀本进程，不连带杀掉它拉起的 Clash Verge
+    # （oneshot 结束时默认会清掉整个 cgroup，刚重启的 GUI 会被一起 SIGTERM）
+    return ("[Unit]\nDescription=Clash pooling exit verification\n"
+            "Wants=network-online.target\nAfter=network-online.target\n"
             "[Service]\nType=oneshot\nExecStart=" + command +
-            "\nTimeoutStartSec=3600\nUMask=0077\n")
+            "\nTimeoutStartSec=3600\nUMask=0077\nKillMode=process\n")
 
 
 def _linux_enable():
     root = _systemd_dir()
     os.makedirs(root, exist_ok=True)
-    for name, full, trigger in ((TASK_WATCH, False, "OnActiveSec=1h\nOnUnitActiveSec=1h"),
+    for name, full, trigger in ((TASK_WATCH, False, "OnActiveSec=1min\nOnUnitActiveSec=1h"),
                                 (TASK_DAILY, True, "OnCalendar=*-*-* 01:00:00")):
         with open(os.path.join(root, name + ".service"), "w", encoding="utf-8") as f:
             f.write(_systemd_service(full=full))
@@ -59,11 +62,14 @@ def _linux_enable():
             body += "\n[Install]\nWantedBy=timers.target\n"
             f.write(body)
     if not _systemctl("daemon-reload"):
-        return
+        print("  单元文件已写入 %s，修好后执行 systemctl --user daemon-reload 并重试" % root)
+        return False
     if not _systemctl("enable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer"):
-        return
+        print("  单元文件已写入 %s，修好后执行 systemctl --user enable --now 重试" % root)
+        return False
     print("已启用 systemd 用户定时器：每天 01:00 全量 + 每小时巡检")
     print("  日志：journalctl --user -u %s.service" % TASK_WATCH)
+    return True
 
 
 def _launcher():
@@ -79,6 +85,24 @@ def _launcher():
 
 
 # ------------------------------------------------------------------ 安装/卸载
+
+def enable():
+    """安装定时核验；失败返回 False（调用方据此给非零退出码）"""
+    try:
+        return _enable()
+    except RuntimeError as exc:
+        print("  %s" % exc)
+        return False
+
+
+def disable():
+    """停用定时核验；失败返回 False"""
+    try:
+        return _disable()
+    except RuntimeError as exc:
+        print("  %s" % exc)
+        return False
+
 
 def _plist(label, args, extra):
     return """<?xml version="1.0" encoding="UTF-8"?>
@@ -128,10 +152,9 @@ def _win_register(name, arguments, trigger_script):
         print("  注册任务失败：%s" % (result.stderr.strip() or result.stdout.strip()))
 
 
-def enable():
+def _enable():
     if platform.IS_LINUX:
-        _linux_enable()
-        return
+        return _linux_enable()
     if platform.IS_WIN:
         _win_register(
             TASK_WATCH, "auto run",
@@ -144,7 +167,7 @@ def enable():
         )
         print("已启用：每天 01:00 全量 + 每小时巡检")
         print("  日志：%s" % platform.auto_log())
-        return
+        return True
 
     os.makedirs(PLIST_DIR, exist_ok=True)
     watch_path = os.path.join(PLIST_DIR, TASK_WATCH + ".plist")
@@ -160,11 +183,14 @@ def enable():
     ))
     print("已启用：每天 01:00 全量 + 每小时巡检")
     print("  日志：%s" % platform.auto_log())
+    return True
 
 
-def disable():
+def _disable():
     if platform.IS_LINUX:
-        _systemctl("disable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer")
+        if not _systemctl("disable", "--now", TASK_WATCH + ".timer", TASK_DAILY + ".timer"):
+            print("  未停用：单元文件保留在 %s，修好 systemctl 后重试" % _systemd_dir())
+            return False
         for name in (TASK_WATCH, TASK_DAILY):
             for suffix in (".timer", ".service"):
                 try:
@@ -173,29 +199,39 @@ def disable():
                     pass
         _systemctl("daemon-reload")
         print("已停用定时核验")
-        return
+        return True
     if platform.IS_WIN:
         for task in (TASK_WATCH, TASK_DAILY):
             subprocess.run("schtasks /Delete /F /TN %s" % task, shell=True, capture_output=True)
         print("已停用定时核验")
-        return
+        return True
     for task in (TASK_WATCH, TASK_DAILY):
         path = os.path.join(PLIST_DIR, task + ".plist")
         if os.path.exists(path):
             subprocess.run(["launchctl", "unload", path], capture_output=True)
             os.remove(path)
     print("已停用定时核验")
+    return True
 
 
 def status():
     if platform.IS_LINUX:
         def running(name):
-            out = subprocess.run(["systemctl", "--user", "is-active", name + ".timer"],
-                                 capture_output=True, text=True).stdout.strip()
-            return out == "active"
+            try:
+                out = subprocess.run(["systemctl", "--user", "is-active", name + ".timer"],
+                                     capture_output=True, text=True).stdout
+            except OSError:
+                return None          # 没有 systemctl：调用方按「未知」显示
+            return out.strip() == "active"
 
-        print("  定时任务：%s ｜ %s" % ("每小时巡检" if running(TASK_WATCH) else "未启用",
-                                     "每天 01:00 全量" if running(TASK_DAILY) else "未启用"))
+        watch, daily = running(TASK_WATCH), running(TASK_DAILY)
+
+        def label(state):
+            return "未知（systemctl 不可用）" if state is None else ("每小时巡检" if state else "未启用")
+
+        print("  定时任务：%s ｜ %s" % (
+            label(watch),
+            "未知（systemctl 不可用）" if daily is None else ("每天 01:00 全量" if daily else "未启用")))
     elif platform.IS_WIN:
         def installed(task):
             out = subprocess.run("schtasks /Query /TN %s" % task, shell=True,

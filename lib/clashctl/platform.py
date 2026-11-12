@@ -93,28 +93,37 @@ def _parse_generated():
     return out
 
 
+def _tcp_endpoint(cfg, secret):
+    addr = os.environ.get("CLASH_CONTROLLER") or cfg["controller"] or "127.0.0.1:9097"
+    host, _, port = addr.rpartition(":")
+    return "tcp", (host or "127.0.0.1", int(port or 9097)), secret
+
+
 def control():
-    """返回 (kind, target, secret)；kind 为 'unix' 或 'tcp'"""
+    """返回 (kind, target, secret)；kind 为 'unix' 或 'tcp'
+
+    优先级：CLASH_CONTROLLER（显式 TCP）> CLASH_SOCK（显式 socket）> 生成配置里的
+    unix socket（文件存在才用）> 生成配置里的 TCP 地址。
+    socket 文件不存在时退回 TCP，避免拿一个过期路径去连。
+    """
     cfg = _parse_generated()
     secret = os.environ.get("CLASH_SECRET") or cfg["secret"]
+    if os.environ.get("CLASH_CONTROLLER"):
+        return _tcp_endpoint(cfg, secret)
     if IS_WIN:
-        addr = os.environ.get("CLASH_CONTROLLER") or cfg["controller"] or "127.0.0.1:9097"
-        host, _, port = addr.rpartition(":")
-        return "tcp", (host or "127.0.0.1", int(port or 9097)), secret
+        return _tcp_endpoint(cfg, secret)
+
     sock = os.environ.get("CLASH_SOCK")
     if not sock and IS_MAC:
         # macOS 的 service 模式会把 mihomo 的控制 socket 放到这里
         service = "/var/run/clash-verge-service/users/%d/verge-mihomo.sock" % os.getuid()
-        sock = service if os.path.exists(service) else cfg["unix"]
+        if os.path.exists(service):
+            sock = service
     if not sock:
         sock = cfg["unix"]
-    if sock:
+    if sock and os.path.exists(sock):
         return "unix", sock, secret
-
-    # 配置里没有 unix socket（只开了 TCP 的情况）：退回 TCP
-    addr = os.environ.get("CLASH_CONTROLLER") or cfg["controller"] or "127.0.0.1:9097"
-    host, _, port = addr.rpartition(":")
-    return "tcp", (host or "127.0.0.1", int(port or 9097)), secret
+    return _tcp_endpoint(cfg, secret)
 
 
 def system_proxy():
@@ -175,7 +184,7 @@ def core_binary():
         root = os.environ.get("ProgramData", r"C:\ProgramData")
         return os.path.join(root, "clash-verge-service", "cores", "verge-mihomo.exe")
     if IS_LINUX:
-        # 不同打包方式放内核的位置不一样：服务模式、deb/rpm、AppImage 解包目录
+        # 不同打包方式放内核的位置不一样：服务模式与 deb/rpm；AppImage 用 CLASH_CORE 指定
         for candidate in (
             "/var/lib/clash-verge-service/cores/verge-mihomo",
             "/usr/lib/Clash Verge/resources/verge-mihomo",

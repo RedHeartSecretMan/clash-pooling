@@ -76,9 +76,9 @@ def main(argv=None):
         commands.sync()
     elif args.command == "auto":
         if args.action == "enable":
-            scheduler.enable()
+            return 0 if scheduler.enable() else 1
         elif args.action == "disable":
-            scheduler.disable()
+            return 0 if scheduler.disable() else 1
         elif args.action == "status":
             scheduler.status()
         else:

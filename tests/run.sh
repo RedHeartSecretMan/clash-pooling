@@ -19,7 +19,7 @@ echo "== 清单与增量刷新 =="
 python3 tests/manifest.test.py || fail=1
 
 echo
-echo "== Linux 平台与定时任务 =="
+echo "== 平台适配与 systemd 定时任务 =="
 python3 tests/linux.test.py || fail=1
 
 echo

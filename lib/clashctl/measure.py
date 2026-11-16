@@ -85,6 +85,7 @@ class _TempInstance:
             self.proc = subprocess.Popen(
                 [core, "-d", self.tmpdir, "-f", cfg],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=platform.no_window_flags(),
             )
         except Exception:
             self.__exit__()

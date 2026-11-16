@@ -9,6 +9,14 @@
 - CI 改为三端测试：push / PR 时在 Ubuntu、macOS、Windows 上各跑一遍完整测试集，
   不再对 Release 文案做正则校验（格式约定见 `docs/releasing.md`）。
 
+### Fixed
+
+- 修复 Windows 定时核验运行时弹出控制台窗口的问题：计划任务改用 `pythonw.exe` 执行，
+  `platform`、`measure`、`scheduler` 调用子进程（`verge-mihomo`、`reg`、`powershell`、`taskkill`）
+  时传入 `CREATE_NO_WINDOW`，重启 Clash Verge 改为直接拉起可执行文件不再经由 `cmd /c start`。
+- 修复 Windows 上旧任务权限不足时 `clashctl auto enable` 仍打印已启用的问题：
+  注册失败时返回非零退出码，并提示以管理员身份执行 `clashctl auto disable && clashctl auto enable`。
+
 ## [0.1.2] - 2026-11-12
 
 ### Added

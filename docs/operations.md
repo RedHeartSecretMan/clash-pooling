@@ -95,6 +95,7 @@ clashctl exit-check --refresh     # 会检测到订阅变化，自动升级为�
 | 规则改了但没生效 | Clash 只在启动/应用时生成配置 | 退出并重新打开 Clash Verge |
 | `exit-check` 报端口占用 | 有另一个核验在跑 | 等它结束，或 `pkill -f exitcheck-` |
 | `auto status` 显示两个任务未启用 | plist 被删或未加载 | `clashctl auto disable && clashctl auto enable` |
+| Windows 上 `clashctl auto enable` 报注册任务失败 / 拒绝访问 | 旧任务以管理员权限创建，普通用户无权覆盖 | 以管理员身份运行一次 `clashctl auto disable && clashctl auto enable` |
 | PowerShell 脚本报「字符串缺少终止符」或中文乱码 | `.ps1` 未以 UTF-8 BOM 保存，PowerShell 5.1 按 ANSI 解析 | 保存为 UTF-8 with BOM（仓库内已带 BOM） |
 | Windows 上 `python` 报 `uv trampoline failed to spawn Python child process` | uv 的 shim 指向已不存在的 Python，或 scoop 的 `current` junction 失效 | `scoop reset uv` 修复 junction；`uv python install --force <版本>` 重建 shim；或直接装官方 Python 并把它的目录排在 PATH 前面 |
 | 内网域名解析失败 | `enable_dns_settings` 被打开，覆盖了 Merge.yaml | 在界面关闭「DNS 设置覆盖」 |

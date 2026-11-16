@@ -13,11 +13,11 @@ import tempfile
 import unittest
 from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 
-from clashctl import platform, scheduler, setup_console
+from clashctl import measure, platform, scheduler, setup_console
 
 setup_console()
 
@@ -257,6 +257,87 @@ class LinuxTests(unittest.TestCase):
         with patch.object(sys, "argv", ["-c"]), \
                 patch.object(scheduler.os.path, "isfile", side_effect=lambda p: p.endswith(".local/bin/clashctl")):
             self.assertTrue(scheduler._launcher().endswith(".local/bin/clashctl"))
+
+
+class WindowsTests(unittest.TestCase):
+    def setUp(self):
+        patch.multiple(platform, IS_MAC=False, IS_WIN=True, IS_LINUX=False,
+                       create=True).start()
+        patch.object(platform.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True).start()
+        self.addCleanup(patch.stopall)
+
+    def test_no_window_flags(self):
+        self.assertEqual(platform.no_window_flags(), 0x08000000)
+        with patch.multiple(platform, IS_WIN=False, IS_LINUX=True):
+            self.assertEqual(platform.no_window_flags(), 0)
+
+    def test_windows_subprocesses_hide_console_window(self):
+        with patch.object(platform.subprocess, "run",
+                          return_value=subprocess.CompletedProcess([], 0, stdout="ProxyEnable    REG_DWORD    0x1\n")) as run:
+            proxy = platform.system_proxy()
+        self.assertEqual(proxy, {"enabled": True, "host": "", "port": 0})
+        self.assertEqual(run.call_args.kwargs["creationflags"], 0x08000000)
+
+        with patch.object(platform.os.path, "exists", side_effect=lambda p: p == r"C:\App\clash-verge.exe"), \
+                patch.object(platform.subprocess, "run",
+                             return_value=subprocess.CompletedProcess([], 0, stdout=r"C:\App\clash-verge.exe")) as run:
+            self.assertEqual(platform.app_exe(), r"C:\App\clash-verge.exe")
+        self.assertEqual(run.call_args.kwargs["creationflags"], 0x08000000)
+
+        with patch.object(platform.subprocess, "run") as run, \
+                patch.object(platform.subprocess, "Popen") as launch, \
+                patch.object(platform.time, "sleep"), \
+                patch.object(platform, "app_exe", return_value=r"C:\App\clash-verge.exe"):
+            self.assertTrue(platform.restart_app(delay=0))
+        self.assertEqual(run.call_args.kwargs["creationflags"], 0x08000000)
+        self.assertEqual(launch.call_args.args[0], [r"C:\App\clash-verge.exe"])
+        self.assertEqual(launch.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(launch.call_args.kwargs["stdout"], subprocess.DEVNULL)
+        self.assertEqual(launch.call_args.kwargs["stderr"], subprocess.DEVNULL)
+
+    def test_temp_instance_passes_no_window_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_proc = MagicMock()
+            with patch.object(measure, "port_busy", return_value=False), \
+                    patch.object(measure.platform, "core_binary", return_value=r"C:\Clash\verge-mihomo.exe"), \
+                    patch.object(measure.os.path, "exists", side_effect=lambda p: p == r"C:\Clash\verge-mihomo.exe"), \
+                    patch.object(measure.platform, "config_root", return_value=tmp), \
+                    patch.object(measure, "build_config", return_value=os.path.join(tmp, "cfg.yaml")), \
+                    patch.object(measure.subprocess, "Popen", return_value=fake_proc) as popen, \
+                    patch.object(measure.time, "sleep"), \
+                    patch.object(measure.api, "request", return_value=(200, {})):
+                with measure._TempInstance([{"name": "n1"}]):
+                    pass
+            self.assertEqual(popen.call_args.kwargs["creationflags"], 0x08000000)
+
+    def test_win_python_prefers_pythonw(self):
+        py_dir = os.path.dirname(scheduler.sys.executable)
+        pyw = os.path.join(py_dir, "pythonw.exe")
+        with patch.object(scheduler.os.path, "isfile", side_effect=lambda p: p == pyw):
+            self.assertEqual(scheduler._win_python(), pyw)
+        with patch.object(scheduler.os.path, "isfile", return_value=False):
+            self.assertEqual(scheduler._win_python(), scheduler.sys.executable)
+
+    def test_win_enable_uses_pythonw_and_reports_permission_hint(self):
+        pyw = os.path.join(os.path.dirname(scheduler.sys.executable), "pythonw.exe")
+        with patch.object(scheduler, "_launcher", return_value=r"C:\Users\x\AppData\Local\clash-pooling\bin\clashctl"), \
+                patch.object(scheduler.os.path, "isfile", side_effect=lambda p: p == pyw), \
+                patch.object(scheduler.subprocess, "run",
+                             return_value=subprocess.CompletedProcess([], 0)) as run:
+            self.assertTrue(quiet(scheduler.enable))
+        ps_calls = [c for c in run.call_args_list if c.args[0][0] == "powershell"]
+        self.assertEqual(len(ps_calls), 2)
+        for call in ps_calls:
+            self.assertEqual(call.kwargs["creationflags"], 0x08000000)
+            self.assertIn(pyw, call.args[0][-1])
+
+        buf = io.StringIO()
+        with patch.object(scheduler, "_launcher", return_value=r"C:\Users\x\AppData\Local\clash-pooling\bin\clashctl"), \
+                patch.object(scheduler.subprocess, "run",
+                             return_value=subprocess.CompletedProcess([], 1, stderr="Access is denied.")), \
+                redirect_stdout(buf):
+            self.assertFalse(scheduler.enable())
+        self.assertIn("clashctl auto disable && clashctl auto enable", buf.getvalue())
 
 
 if __name__ == "__main__":

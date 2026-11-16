@@ -153,6 +153,11 @@ def control():
     return _tcp_endpoint(cfg, secret)
 
 
+def no_window_flags():
+    """Windows 下为子进程屏蔽控制台窗口，避免在 pythonw 下弹窗"""
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WIN else 0
+
+
 def system_proxy():
     """系统代理状态：{'enabled': bool, 'host': str, 'port': int}；读不到返回 None"""
     if IS_MAC:
@@ -169,7 +174,8 @@ def system_proxy():
         try:
             out = subprocess.run(
                 ["reg", "query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings"],
-                capture_output=True, text=True, timeout=5).stdout
+                capture_output=True, text=True, timeout=5,
+                creationflags=no_window_flags()).stdout
         except Exception:
             return None
         enabled = re.search(r"ProxyEnable\s+REG_DWORD\s+0x1", out)
@@ -273,6 +279,7 @@ def app_exe():
             ["powershell", "-NoProfile", "-Command",
              "(Get-Process clash-verge -ErrorAction SilentlyContinue | Select-Object -First 1).Path"],
             capture_output=True, text=True, timeout=10,
+            creationflags=no_window_flags(),
         ).stdout.strip()
         if out and os.path.exists(out):
             return out
@@ -289,11 +296,20 @@ def restart_app(delay=4):
         subprocess.run(["open", "-a", "Clash Verge"], capture_output=True)
         return True
     if IS_WIN:
-        subprocess.run(["taskkill", "/IM", "clash-verge.exe", "/F"], capture_output=True)
+        subprocess.run(
+            ["taskkill", "/IM", "clash-verge.exe", "/F"],
+            capture_output=True,
+            creationflags=no_window_flags(),
+        )
         time.sleep(delay)
         exe = app_exe()
         if exe:
-            subprocess.Popen(["cmd", "/c", "start", "", exe], shell=False)
+            subprocess.Popen(
+                [exe],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             return True
         return False
     if IS_LINUX:

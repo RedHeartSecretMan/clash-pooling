@@ -174,6 +174,12 @@ def _write_plist(path, content):
     subprocess.run(["launchctl", "load", path], capture_output=True)
 
 
+def _win_python():
+    """定时任务优先使用 pythonw.exe，避免 Windows 下弹出控制台窗口"""
+    candidate = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    return candidate if os.path.isfile(candidate) else sys.executable
+
+
 def _win_register(name, arguments, trigger_script):
     """用 ScheduledTask cmdlet 注册任务：允许电池运行、限制并发、放宽执行时限"""
     ps = (
@@ -185,12 +191,15 @@ def _win_register(name, arguments, trigger_script):
         "{trigger}\n"
         "Register-ScheduledTask -TaskName '{name}' -Action $action -Trigger $trigger "
         "-Settings $settings -Force | Out-Null\n"
-    ).format(exe=sys.executable, script=_launcher(), args=arguments,
+    ).format(exe=_win_python(), script=_launcher(), args=arguments,
              trigger=trigger_script, name=name)
     result = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True,
+                            creationflags=platform.no_window_flags())
     if result.returncode != 0:
         print("  注册任务失败：%s" % (result.stderr.strip() or result.stdout.strip()))
+        return False
+    return True
 
 
 def _enable():
@@ -198,15 +207,18 @@ def _enable():
     if platform.IS_LINUX:
         return _linux_enable()
     if platform.IS_WIN:
-        _win_register(
+        ok_watch = _win_register(
             TASK_WATCH, "auto run",
             "$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) "
             "-RepetitionInterval (New-TimeSpan -Hours 1)",
         )
-        _win_register(
+        ok_daily = _win_register(
             TASK_DAILY, "auto run --full",
             "$trigger = New-ScheduledTaskTrigger -Daily -At 01:00",
         )
+        if not (ok_watch and ok_daily):
+            print("  提示：若因已有旧任务权限不足失败，请以管理员身份运行一次 clashctl auto disable && clashctl auto enable")
+            return False
         print("已启用：每天 01:00 全量 + 每小时巡检")
         print("  日志：%s" % platform.auto_log())
         return True

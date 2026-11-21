@@ -68,8 +68,10 @@ tail -f ~/.clash-pooling/auto.log
 **切换某个服务组的地区**
 
 ```bash
-clashctl use "AI" "美国"
+clashctl use "AI" "美国池"
 ```
+
+地区池名统一以「池」结尾（`美国池`、`香港池`……），`use` 里要写完整名字。
 
 **钉死某个具体节点**（池外节点只能通过「其他」访问）
 
@@ -88,11 +90,12 @@ clashctl exit-check --refresh     # 会检测到订阅变化，自动升级为�
 
 | 现象 | 可能原因 | 处理 |
 |---|---|---|
-| Antigravity 报 `User location is not supported` | AI 组被切到了香港 | `clashctl use "AI" "新加坡"` |
+| Antigravity 报 `User location is not supported` | AI 组被切到了香港 | `clashctl use "AI" "新加坡池"` |
 | 某个地区池为空 / 变成 `DIRECT` | 该地区没有实测通过的节点 | `clashctl exit-check --refresh` 补测；查看 `clashctl regions` |
 | 订阅更新后池子明显变小 | 新节点还没实测，清单里没有记录 | 属预期，下一次巡检（≤1 小时）自动补上 |
 | 节点恢复了但没进池 | 巡检还没轮到 | 最长 1 小时；急用跑 `--refresh` |
 | 规则改了但没生效 | Clash 只在启动/应用时生成配置 | 退出并重新打开 Clash Verge |
+| 界面显示「未获取到代理信息」，日志报 `proxy group X: the duplicate name` | 组名与订阅节点重名，内核拒绝整份配置，Verge 退回默认最小配置 | 地区池已统一以「池」结尾；确认 `Script.js` 是最新版本，`clashctl sync` 后退出重开 Verge |
 | `exit-check` 报端口占用 | 有另一个核验在跑 | 等它结束，或 `pkill -f exitcheck-` |
 | `auto status` 显示两个任务未启用 | plist 被删或未加载 | `clashctl auto disable && clashctl auto enable` |
 | Windows 上 `clashctl auto enable` 报注册任务失败 / 拒绝访问 | 旧任务以管理员权限创建，普通用户无权覆盖 | 以管理员身份运行一次 `clashctl auto disable && clashctl auto enable` |

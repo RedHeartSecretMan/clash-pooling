@@ -43,6 +43,11 @@ Write-Host '== 平台适配与 systemd 定时任务 =='
 if ($LASTEXITCODE -ne 0) { $fail = 1 }
 
 Write-Host ''
+Write-Host '== 地区池展示顺序 =='
+& $py tests\commands.test.py
+if ($LASTEXITCODE -ne 0) { $fail = 1 }
+
+Write-Host ''
 Write-Host '== 敏感内容 =='
 & $py tests\check_sensitive.py
 if ($LASTEXITCODE -ne 0) { $fail = 1 }

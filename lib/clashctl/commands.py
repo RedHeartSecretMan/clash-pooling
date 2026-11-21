@@ -25,27 +25,41 @@ def _pad(text, width):
     return text + " " * max(0, width - used)
 
 
-def pool_order(pools):
-    """地区池的展示顺序：按 Script.js 的 PREFER 名单，未列出的排在后面
+def pool_order(pools, node_names=None):
+    """地区池的展示顺序：与配置生成用同一份地区排序
 
-    接口返回的键序不可靠（按字典序），所以从脚本源码里读推荐顺序。
+    接口返回的键序不可靠（按字典序），命名线索由 manifest 从脚本源码还原。
+    PREFER 内的地区按名单顺序；其余按实测节点数降序，相同则按在清单里
+    首次出现的顺序（与 Script.js 的 regionCompare / byRegion 一致）。
+    名字被订阅节点占用时会加避让后缀，用前缀匹配保证仍能归位。
     """
     try:
-        text = open(platform.script_path(), encoding="utf-8").read()
-        alias_block = re.search(r"var REGION_NAME = \{(.*?)\};", text, re.S)
-        prefer_block = re.search(r"var PREFER = \[(.*?)\];", text, re.S)
-        alias = {}
-        if alias_block:
-            for cc, name in re.findall(r'(\w{2}):\s*"([^"]+)"', alias_block.group(1)):
-                alias[cc] = name
-        order = []
-        if prefer_block:
-            for cc in re.findall(r'"(\w{2})"', prefer_block.group(1)):
-                order.append(alias.get(cc, cc))
-        return [n for n in order if n in pools] + [n for n in pools if n not in order]
+        with open(platform.script_path(), encoding="utf-8") as f:
+            text = f.read()
     except OSError:
-        pass
-    return list(pools)
+        return list(pools)
+    prefer, alias, suffix = manifest.pool_name_hints(text)
+    stats = manifest.region_stats(text, alias, suffix,
+                                  alive=set(node_names) if node_names else None)
+    ranked = []
+    for cc in prefer:
+        base = alias.get(cc, cc) + suffix
+        match = next((n for n in pools if n == base or n.startswith(base + " ")), None)
+        if match:
+            ranked.append(match)
+    tail = [n for n in pools if n not in ranked]
+    # 长名优先，避免「印度」抢先匹配到「印度尼西亚池」
+    bases = sorted(stats, key=len, reverse=True)
+
+    def tail_key(pool_name):
+        for base in bases:
+            if pool_name == base or pool_name.startswith(base + " "):
+                count, first = stats[base]
+                return (0, -count, first)
+        return (1, 0, 0)
+
+    tail.sort(key=tail_key)
+    return ranked + tail
 
 
 def _chain(all_proxies, name):
@@ -62,7 +76,7 @@ def _chain(all_proxies, name):
 def status():
     proxies = api.proxies()
     services = api.service_groups(proxies)
-    pools = pool_order(api.pool_groups(proxies))
+    pools = pool_order(api.pool_groups(proxies), api.node_names(proxies))
     print("  " + _pad("服务分组", 14) + "链路")
     print("  " + "-" * 66)
     for name in services:
@@ -80,7 +94,7 @@ def status():
 def regions():
     proxies = api.proxies()
     services = api.service_groups(proxies)
-    pools = pool_order(api.pool_groups(proxies))
+    pools = pool_order(api.pool_groups(proxies), api.node_names(proxies))
     print("  " + _pad("地区组", 14) + _pad("当前节点", 30) + "备选数")
     print("  " + "-" * 58)
     for name in services + pools:
@@ -120,7 +134,9 @@ def test(services=None):
     targets = services or api.service_groups(proxies)
     port = platform.mixed_port()
     for name in targets:
-        url = TEST_URLS.get(name, TEST_URLS["通用"])
+        url = next((u for base, u in TEST_URLS.items()
+                    if name == base or name.startswith(base + " ")),
+                   TEST_URLS["通用"])
         values = []
         for _ in range(3):
             try:
@@ -245,7 +261,7 @@ def _write_marker(verified, total, full):
 def exit_check(which=None):
     """核验池内节点的出口是否符合预期"""
     proxies = api.proxies()
-    pools = pool_order(api.pool_groups(proxies))
+    pools = pool_order(api.pool_groups(proxies), api.node_names(proxies))
     text = open(platform.script_path(), encoding="utf-8").read()
     verified = manifest.parse_manifest(text)
     expect = {}

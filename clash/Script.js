@@ -18,8 +18,9 @@
 //   main()        重建分组、重映射规则目标、注入本地规则
 //
 // 修改约定
-//   只改注释和 LOCAL-RULES 里的规则；VERIFIED 区块由工具维护。
-//   改完需退出并重新打开 Clash Verge，才会重新生成配置。
+//   VERIFIED 区块由工具维护，勿手改。
+//   LOCAL-RULES 与 main() 生成逻辑都可修改；改动后跑 tests/run.sh，
+//   再 clashctl sync 并退出重开 Clash Verge 使配置生效。
 // ===========================================================================
 
 // >>> LOCAL-RULES（本文件维护，改这里即可）
@@ -79,7 +80,7 @@ var LOCAL_RULES = [
   "DOMAIN-SUFFIX,khm.l.google.com,REJECT",
 
   // --- 3. Google 日常与流媒体 → 通用组 ---
-  //     香港延迟最低；网页版 Gemini 在香港可用
+  //     通用组默认选实测最快的池（当前为香港）；网页版 Gemini 在香港可用
   // Google 日常
   "DOMAIN-SUFFIX,gemini.google.com,通用",
   "DOMAIN-SUFFIX,bard.google.com,通用",
@@ -137,10 +138,59 @@ function main(config, profileName) {
   var proxies = config.proxies || [];
   if (!proxies.length) return config;
 
-  var have = {};
-  for (var i = 0; i < proxies.length; i++) have[proxies[i].name] = true;
+  // 当前订阅节点名（只读快照）：用于判断清单里的节点是否还在订阅中
+  var proxyNames = {};
+  for (var i = 0; i < proxies.length; i++) proxyNames[proxies[i].name] = true;
+
+  // mihomo 要求节点名与代理组名在同一命名空间内全局唯一。机场订阅会出现裸地区名
+  // 的节点（例如就叫「美国」），若地区池也叫「美国」，内核会报
+  // "proxy group 美国: the duplicate name"，Clash Verge 验证失败后退回
+  // 默认最小配置（没有任何节点），界面显示「未获取到代理信息」。
+  //
+  // 地区池统一以「池」结尾，占一个稳定的命名区间：名字不随订阅里有没有同名节点
+  // 而变，`clashctl use` 与界面记住的选择也不会失效。服务组保持短名字。
+  // uniqueName 是唯一的名字分配入口：地区池与三个服务组都走这里。
+  // 原名可用就直接用；被节点占用时按 X → XYZ → XYZ 年月日 递进升级后缀
+  // （每一级都更难与订阅节点撞名），保证内核不会因重名拒绝配置。
+  // 已分配的名字：初始值同为节点名，但生成组名时继续追加，与 proxyNames 语义不同
+  var used = {};
+  for (var ui = 0; ui < proxies.length; ui++) used[proxies[ui].name] = true;
+  used["DIRECT"] = true; used["REJECT"] = true; used["PASS"] = true;
+
+  var FALLBACK_TAGS = ["X", "XYZ"];
+
+  function dateTag() {
+    try {
+      var d = new Date();
+      function pad(n) { return (n < 10 ? "0" : "") + n; }
+      return "" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate());
+    } catch (e) {
+      return "00000000";   // 沙箱里取不到时间也不能让整份配置失败
+    }
+  }
+
+  function uniqueName(base) {
+    if (!used[base]) { used[base] = true; return base; }
+    for (var i = 0; i < FALLBACK_TAGS.length; i++) {
+      var tagged = base + " " + FALLBACK_TAGS[i];
+      if (!used[tagged]) { used[tagged] = true; return tagged; }
+    }
+    var stamp = dateTag();
+    var name = base + " XYZ " + stamp;
+    for (var n = 2; used[name]; n++) name = base + " XYZ " + stamp + " " + n;
+    used[name] = true;
+    return name;
+  }
+
+  // 服务组名也走同一套避让：机场也可能拿「AI」「其他」当节点名
+  var SERVICE = {
+    "AI": uniqueName("AI"),
+    "通用": uniqueName("通用"),
+    "其他": uniqueName("其他")
+  };
 
   var HC = "https://www.gstatic.com/generate_204";
+  var POOL_SUFFIX = "池";  // 组名后缀：与节点名隔开；clashctl 也从本文件读取
   var POOL_CAP = 10;      // 每个地区池最多收录多少个节点
   var MIN_POOL = 3;       // 少于这个数量就不建池，节点落「其他」
   var MAX_POOLS = 8;      // 最多建多少个地区池，避免组列表过长
@@ -228,7 +278,7 @@ function main(config, profileName) {
   // 按实测清单把节点分到出口地区，同地区内按延迟升序
   var byRegion = {};
   for (var nm in VERIFIED) {
-    if (!have[nm] || JUNK.test(nm)) continue;
+    if (!proxyNames[nm] || JUNK.test(nm)) continue;
     var v = VERIFIED[nm];
     if (!byRegion[v[0]]) byRegion[v[0]] = [];
     byRegion[v[0]].push([nm, v[1]]);
@@ -238,6 +288,7 @@ function main(config, profileName) {
   }
 
   // 建池：任意地区只要验证节点数达到 MIN_POOL 就建池，不依赖预设名单
+  // 池名统一加「池」后缀，对所有动态发现的地区一视同仁（含对照表外的代码）
   var pools = [];
   var inPool = {};
   var poolCc = {};
@@ -246,18 +297,24 @@ function main(config, profileName) {
   for (var code in byRegion) {
     if (byRegion[code].length >= MIN_POOL) codes.push(code);
   }
-  codes.sort(function (a, b) {
+
+  // 地区排序规则：PREFER 优先，其余按该地区实测节点数降序。
+  // 建池顺序与「其他」组的地区桶顺序共用这一份，避免两处漂移。
+  function regionCompare(a, b) {
     var pa = PREFER.indexOf(a), pb = PREFER.indexOf(b);
     if (pa >= 0 && pb >= 0) return pa - pb;
     if (pa >= 0) return -1;
     if (pb >= 0) return 1;
-    return byRegion[b].length - byRegion[a].length;
-  });
+    var la = byRegion[a] ? byRegion[a].length : 0;
+    var lb = byRegion[b] ? byRegion[b].length : 0;
+    return lb - la;
+  }
+  codes.sort(regionCompare);
   if (codes.length > MAX_POOLS) codes = codes.slice(0, MAX_POOLS);
 
   for (var ci = 0; ci < codes.length; ci++) {
     var ccode = codes[ci];
-    var poolName = REGION_NAME[ccode] || ccode;
+    var poolName = uniqueName((REGION_NAME[ccode] || ccode) + POOL_SUFFIX);
     var members = [];
     for (var mi = 0; mi < byRegion[ccode].length && mi < POOL_CAP; mi++) {
       members.push(byRegion[ccode][mi][0]);
@@ -271,44 +328,44 @@ function main(config, profileName) {
     for (var mj = 0; mj < members.length; mj++) inPool[members[mj]] = true;
   }
 
-  // 服务组里的池顺序：香港优先，其余按该池最快节点的延迟升序
+  // 服务组成员一律按该池最快节点的实测延迟升序：初始默认选表现最好的池。
+  // AI 与通用的唯一区别是前者不含香港（合规硬约束，与延迟无关）。
   var hkName = null;
   for (var pk in poolCc) if (poolCc[pk] === "HK") hkName = pk;
-  var poolNames = [];
-  for (var pi = 0; pi < pools.length; pi++) poolNames.push(pools[pi].name);
-  var rest = poolNames.filter(function (n) { return n !== hkName; });
-  rest.sort(function (a, b) { return latency[a] - latency[b]; });
-  if (hkName) rest.unshift(hkName);
+  var generalNames = [];
+  for (var pi = 0; pi < pools.length; pi++) generalNames.push(pools[pi].name);
+  generalNames.sort(function (a, b) { return latency[a] - latency[b]; });
+  var aiNames = generalNames.filter(function (n) { return n !== hkName; });
 
-  // AI 组不含香港：AI 服务的官方支持地区都不含香港
-  var aiNames = rest.filter(function (n) { return n !== hkName; });
-
-  // 其他：池外节点，按地区优先级分桶排序（不依赖 sort 的稳定性）
-  // 「其他」里的节点按地区名分桶排序：先用 PREFER 派生的顺序，
-  // 再补几个没建池但常见的地区。新增地区只影响排序，名称已在 REGION_NAME 里。
-  var EXTRA_ORDER = ["加拿大", "英国", "法国", "德国", "韩国"];
-  var REGION_ORDER = PREFER.map(function (cc) { return REGION_NAME[cc] || cc; }).concat(EXTRA_ORDER);
-  function regionRank(n) {
-    for (var o = 0; o < REGION_ORDER.length; o++) if (n.indexOf(REGION_ORDER[o]) === 0) return o;
-    return REGION_ORDER.length;
-  }
-  var buckets = [];
-  for (var b = 0; b <= REGION_ORDER.length; b++) buckets.push([]);
+  // 其他：池外节点按实测出口地区分桶，与建池同源，不再按节点名前缀猜地区。
+  // 桶顺序沿用 regionCompare（PREFER 优先 + 其余按节点数降序）；
+  // 与建池不同：不设 MIN_POOL 阈值、不做 MAX_POOLS 截断，每个节点都要有桶。
+  // 桶内按实测延迟升序，快的排前面。
+  var byExit = {};
   for (var p = 0; p < proxies.length; p++) {
     var pn = proxies[p].name;
     if (inPool[pn] || JUNK.test(pn)) continue;
     if (!VERIFIED[pn]) continue;   // 没有实测记录 = 探测失败过，只收确认活着的节点
-    buckets[regionRank(pn)].push(pn);
+    var exitCode = VERIFIED[pn][0];
+    if (!byExit[exitCode]) byExit[exitCode] = [];
+    byExit[exitCode].push({ name: pn, latency: VERIFIED[pn][1] });
   }
+  var exitCodes = [];
+  for (var code2 in byExit) exitCodes.push(code2);
+  exitCodes.sort(regionCompare);
   var leftover = [];
-  for (var b2 = 0; b2 < buckets.length; b2++) leftover = leftover.concat(buckets[b2]);
+  for (var e = 0; e < exitCodes.length; e++) {
+    var items = byExit[exitCodes[e]];
+    items.sort(function (a, b) { return a.latency - b.latency; });
+    for (var it = 0; it < items.length; it++) leftover.push(items[it].name);
+  }
 
-  var other = { name: "其他", type: "select", proxies: leftover.concat(["DIRECT", "REJECT"]) };
+  var other = { name: SERVICE["其他"], type: "select", proxies: leftover.concat(["DIRECT", "REJECT"]) };
 
-  // 服务组：AI（无香港）、通用（香港优先）；两者都可切到「其他」手动挑节点
+  // 服务组：AI 与通用共用同一份延迟排序，AI 只少一个香港池
   var services = [
-    sel("AI", aiNames.concat(["其他", "DIRECT", "REJECT"])),
-    sel("通用", rest.concat(["其他", "DIRECT", "REJECT"]))
+    sel(SERVICE["AI"], aiNames.concat([SERVICE["其他"], "DIRECT", "REJECT"])),
+    sel(SERVICE["通用"], generalNames.concat([SERVICE["其他"], "DIRECT", "REJECT"]))
   ];
 
   config["proxy-groups"] = services.concat([other]).concat(pools);
@@ -337,6 +394,7 @@ function main(config, profileName) {
     "🎬 流媒体": "通用",
     "非港": "AI",
     "♻️ 非港AI": "AI",
+    // 地区池名由 poolNameOf() 动态解析，不写死后缀（改名后仍有效）
     "♻️ 香港": "香港",
     "♻️ 美国": "美国",
     "🔧 手动节点": "其他",
@@ -346,6 +404,12 @@ function main(config, profileName) {
     "Direct": "DIRECT",
     "Reject": "REJECT"
   };
+
+  // 组名避让节点后，规则里写的旧服务组名要跟着改指向
+  var ALIAS = {};
+  ALIAS["AI"] = SERVICE["AI"];
+  ALIAS["通用"] = SERVICE["通用"];
+  ALIAS["其他"] = SERVICE["其他"];
 
   // 收集已知目标，用于判断机场规则指到的组是否还存在
   var known = {};
@@ -381,7 +445,22 @@ function main(config, profileName) {
         break;
       }
     }
-    return "通用";
+    return SERVICE["通用"];
+  }
+
+  // 规则尾部可能带选项（no-resolve、src），目标取它们前一个字段
+  function targetIndex(parts) {
+    var idx = parts.length - 1;
+    if (parts[idx] === "no-resolve" || parts[idx] === "src") idx--;
+    return idx;
+  }
+
+  // 把规则目标解析成实际存在的组名（组名可能因避让节点而改名）
+  function resolveTarget(target) {
+    var mapped = RENAME[target] || target;
+    if (ALIAS[mapped]) mapped = ALIAS[mapped];
+    if (!known[mapped]) mapped = guessTarget(mapped);
+    return mapped;
   }
 
   // 把机场规则的目标重映射到本脚本重建的组；不认识的按语义兜底
@@ -389,21 +468,37 @@ function main(config, profileName) {
   for (var ri = 0; ri < rules.length; ri++) {
     if (typeof rules[ri] !== "string") continue;
     var parts = rules[ri].split(",");
-    var idx = parts.length - 1;
-    // 规则尾部可能带选项（no-resolve、src），目标取它们前一个字段
-    if (parts[idx] === "no-resolve" || parts[idx] === "src") idx--;
+    var idx = targetIndex(parts);
     if (idx < 1) continue;
-    var target = parts[idx];
-    var mapped = RENAME[target] || target;
-    if (!known[mapped]) mapped = guessTarget(mapped);
-    parts[idx] = mapped;
+    parts[idx] = resolveTarget(parts[idx]);
     rules[ri] = parts.join(",");
+  }
+
+  // 本机私有规则只映射服务组名，不做语义猜测：私有规则可能直接指向某个节点名，
+  // guessTarget 会把「美国 01」这类节点名误判成地区池，改变用户本意。
+  function retargetPrivate(rule) {
+    if (typeof rule !== "string") return rule;
+    var parts = rule.split(",");
+    var idx = targetIndex(parts);
+    if (idx >= 1 && ALIAS[parts[idx]]) parts[idx] = ALIAS[parts[idx]];
+    return parts.join(",");
+  }
+
+  // 本地规则里的 AI / 通用 也要跟着改名，否则会指向不存在的组
+  function retarget(rule) {
+    if (typeof rule !== "string") return rule;
+    var parts = rule.split(",");
+    var idx = targetIndex(parts);
+    if (idx < 1) return rule;
+    parts[idx] = resolveTarget(parts[idx]);
+    return parts.join(",");
   }
 
   // 本地规则拼在机场规则之前，等价于原来 rules 覆盖文件的 prepend
   // 顺序：本机私有规则 → 通用本地规则 → 机场规则
   // 私有规则排最前，才能覆盖通用规则（例如把某个域名改成直连）
-  config.rules = LOCAL_RULES_EXTRA.concat(LOCAL_RULES).concat(rules);
+  config.rules = LOCAL_RULES_EXTRA.map(retargetPrivate)
+    .concat(LOCAL_RULES.map(retarget)).concat(rules);
 
   return config;
 }

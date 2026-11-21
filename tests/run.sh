@@ -26,6 +26,10 @@ echo "== 平台适配与 systemd 定时任务 =="
 python3 tests/linux.test.py || fail=1
 
 echo
+echo "== 地区池展示顺序 =="
+python3 tests/commands.test.py || fail=1
+
+echo
 echo "== 敏感内容 =="
 python3 tests/check_sensitive.py || fail=1
 

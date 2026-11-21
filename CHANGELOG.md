@@ -2,15 +2,31 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 
-## [Unreleased]
+## [0.1.3] - 2026-11-21
 
 ### Changed
 
+- 「其他」组的池外节点改为按实测出口地区分桶：桶顺序与建池共用同一份地区排序，
+  桶内按实测延迟升序，不再按节点名前缀猜地区；`EXTRA_ORDER` 手写名单随之删除。
+- 服务组成员顺序统一按该池最快节点的实测延迟升序，AI 与通用的唯一区别是前者
+  不含香港（合规硬约束）；不再把香港池强制钉在通用组第一位。
+- 地区池名统一加「池」后缀（`美国池`、`香港池`……）：在生成时对所有动态发现的地区生效，
+  包括对照表里没有的代码。正常情况名字固定，`clashctl use` 与界面记住的选择稳定；
+  仅当订阅节点占了同名时才按 X → XYZ → XYZ 年月日 递进避让。
 - CI 改为三端测试：push / PR 时在 Ubuntu、macOS、Windows 上各跑一遍完整测试集，
   不再对 Release 文案做正则校验（格式约定见 `docs/releasing.md`）。
 
 ### Fixed
 
+- 修复 `clashctl status` / `regions` 里未列入 `PREFER` 的地区池按 API 字典序显示、
+  与配置真实顺序不一致的问题：改为按实测节点数降序（与建池共用同一套地区排序），
+  名字被避让时按前缀归位。
+- 修复本机私有规则（`LOCAL_RULES_EXTRA`）被规则目标重映射误改写的问题：私有规则只映射
+  服务组名，不再走语义猜测，避免把指向节点名的规则改成地区池。
+- 修复订阅出现裸地区名节点（如「美国」）时与同名地区池重名的问题：mihomo 要求
+  节点名与组名全局唯一，重名会让内核拒绝整份配置，Clash Verge 退回默认最小配置，
+  界面显示「未获取到代理信息」。现在组名占固定区间，并保留 `uniqueName()` 兜底：
+  冲突时按 X → XYZ → XYZ 年月日 递进升级，地区池与三个服务组共用。
 - 修复 Windows 定时核验运行时弹出控制台窗口的问题：计划任务改用 `pythonw.exe` 执行，
   `platform`、`measure`、`scheduler` 调用子进程（`verge-mihomo`、`reg`、`powershell`、`taskkill`）
   时传入 `CREATE_NO_WINDOW`，重启 Clash Verge 改为直接拉起可执行文件不再经由 `cmd /c start`。

@@ -113,11 +113,17 @@ def service_groups(all_proxies):
     """服务组：select 类型的组，按 AI / 通用 / 其他 优先排序
 
     与 pool_groups 按类型互斥（select ↔ url-test），同一个组不会出现在两边。
+    名字被订阅节点占用时会加避让后缀，用前缀匹配保证仍能归位。
     """
     order = ["AI", "通用", "其他"]
     names = [n for n, v in all_proxies.items()
              if v["type"] == "Selector" and n != "GLOBAL"]
-    return [n for n in order if n in names] + [n for n in names if n not in order]
+    ranked = []
+    for base in order:
+        match = next((n for n in names if n == base or n.startswith(base + " ")), None)
+        if match:
+            ranked.append(match)
+    return ranked + [n for n in names if n not in ranked]
 
 
 def pool_groups(all_proxies):

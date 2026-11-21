@@ -119,3 +119,43 @@ def resolve_full(explicit_full, recheck):
     if recheck:
         return False
     return bool(explicit_full)
+
+
+def pool_name_hints(script_text):
+    """从 Script.js 源码还原地区池命名线索：(PREFER 代码列表, 代码→中文名, 池名后缀)
+
+    命令行展示顺序要与配置生成用同一份名单；旧版脚本没有后缀声明时返回空串，
+    调用方按裸名处理。
+    """
+    text = script_text or ""
+    alias = {}
+    m = re.search(r"var REGION_NAME = \{(.*?)\};", text, re.S)
+    if m:
+        for cc, name in re.findall(r'(\w{2}):\s*"([^"]+)"', m.group(1)):
+            alias[cc] = name
+    prefer = []
+    m = re.search(r"var PREFER = \[(.*?)\];", text, re.S)
+    if m:
+        prefer = re.findall(r'"(\w{2})"', m.group(1))
+    m = re.search(r'var POOL_SUFFIX = "([^"]+)";', text)
+    suffix = m.group(1) if m else ""
+    return prefer, alias, suffix
+
+
+def region_stats(script_text, alias, suffix, alive=None):
+    """按地区池名统计实测节点数与首次出现顺序：{池名: (节点数, 首次序号)}
+
+    与 Script.js 的 byRegion 同源：跳过落地页节点；给了 alive 时还跳过
+    已不在订阅中的条目。供命令行按同一份地区排序展示池列表。
+    """
+    stats = {}
+    for idx, (name, (cc, _ms)) in enumerate(parse_manifest(script_text).items()):
+        if is_junk(name):
+            continue
+        if alive is not None and name not in alive:
+            continue
+        key = alias.get(cc, cc) + suffix
+        if key not in stats:
+            stats[key] = [0, idx]
+        stats[key][0] += 1
+    return stats

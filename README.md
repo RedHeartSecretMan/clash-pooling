@@ -100,7 +100,7 @@ Linux 使用同一份 `install.sh`，首次安装后先执行 `clashctl exit-che
 |---|---|
 | 规则 | 决定域名归哪个服务组。本仓库内置本地规则 75 条，机场自带规则由订阅决定 |
 | 服务组 | 你在界面切换的地方；AI 组自动排除香港 |
-| 地区池 | 由实测清单自动发现：某个地区验证节点达到 3 个就建池，池内 `url-test` 自动择优 |
+| 地区池 | 由实测清单自动发现：某个地区验证节点达到 3 个就建池，池名统一以「池」结尾，池内 `url-test` 自动择优 |
 | 其他 | 池外且实测通过的节点，手动指定冷门节点时用 |
 
 规则与池的**具体数量取决于订阅**，不是固定值；用 `clashctl status` 与 `clashctl regions` 看当前实际情况。
@@ -112,9 +112,9 @@ Linux 使用同一份 `install.sh`，首次安装后先执行 `clashctl exit-che
 ./tests/run.sh
 ```
 
-四个测试文件：`tests/groups.test.cjs` 验证分组与规则生成，`tests/manifest.test.py` 验证清单解析与增量决策，
-`tests/linux.test.py` 覆盖 Linux 路径、控制接口与 systemd 定时器，`tests/check_sensitive.py` 守着仓库里
-不出现私网地址、订阅令牌与真实密钥。
+五个测试文件：`tests/groups.test.cjs` 验证分组与规则生成，`tests/manifest.test.py` 验证清单解析与增量决策，
+`tests/linux.test.py` 覆盖 Linux 路径、控制接口与 systemd 定时器，`tests/commands.test.py` 验证地区池展示顺序，
+`tests/check_sensitive.py` 守着仓库里不出现私网地址、订阅令牌与真实密钥。
 
 分组测试默认读**本机已部署的** `Script.js`（即真正在跑的那份；不存在时回落到仓库里的源文件），可用 `CLASH_SCRIPT=<路径>` 指向其他副本；
 清单测试同理支持 `CLASHCTL_LIB`。

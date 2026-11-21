@@ -26,7 +26,7 @@ const SCRIPT_PATH =
 // 造一批节点：每个地区 4 个（够建池），外加 2 个池外的加拿大节点和 1 个落地页
 function makeProxies() {
   const p = [];
-  const regions = { HK: "香港", SG: "新加坡", TW: "台湾", JP: "日本", US: "美国", IN: "印度", AU: "澳大利亚" };
+  const regions = { HK: "香港池", SG: "新加坡池", TW: "台湾池", JP: "日本池", US: "美国池", IN: "印度池", AU: "澳大利亚池" };
   for (const [cc, zh] of Object.entries(regions)) {
     for (let i = 1; i <= 4; i++) p.push({ name: `${zh} T${i}`, cc });
   }
@@ -65,6 +65,11 @@ function buildGroups(manifest = VERIFIED_FIXTURE, proxies = PROXIES) {
   const main = loadScriptWithManifest(manifest);
   const config = { proxies: proxies.slice(), rules: ["MATCH,某不存在的组"], "proxy-groups": [] };
   const out = main(config, "test");
+  const names = out["proxy-groups"].map((g) => g.name);
+  // byName 会静默折叠重复组名，先在这里把重复挡住
+  assert(new Set(names).size === names.length, "生成的组名有重复：" + JSON.stringify(names));
+  const nodeNames = new Set(out.proxies.map((p) => p.name));
+  for (const n of names) assert(!nodeNames.has(n), `组名 ${n} 与节点重名`);
   const byName = {};
   for (const g of out["proxy-groups"]) byName[g.name] = g;
   return { config: out, groups: byName, order: Object.keys(byName) };
@@ -104,23 +109,23 @@ check("服务组是 AI / 通用 / 其他，且没有旧的影音/亚太/美国",
 
 // 2. AI 组不含香港
 check("AI 组不含香港池", () => {
-  assert(!M("AI").includes("香港"), "AI 组里出现了香港：" + JSON.stringify(M("AI")));
+  assert(!M("AI").includes("香港池"), "AI 组里出现了香港池：" + JSON.stringify(M("AI")));
 });
 
 // 3. AI 组按延迟排序（新加坡应排在台湾/日本/美国前面）
 check("AI 组成员按实测延迟排序", () => {
   const m = M("AI").filter((x) => x !== "其他" && x !== "DIRECT" && x !== "REJECT");
-  assert(m[0] === "新加坡", "AI 组首个地区池应为新加坡，实际：" + JSON.stringify(m));
+  assert(m[0] === "新加坡池", "AI 组首个地区池应为新加坡池，实际：" + JSON.stringify(m));
 });
 
-// 4. 通用组香港排第一
-check("通用组以香港开头", () => {
-  assert(M("通用")[0] === "香港", "通用组首个应为香港：" + JSON.stringify(M("通用")));
+// 4. 通用组首个是延迟最低的池
+check("通用组首个是延迟最低的池", () => {
+  assert(M("通用")[0] === "香港池", "通用组首个应为延迟最低的池：" + JSON.stringify(M("通用")));
 });
 
 // 5. 地区池按出口建，且成员出口一致
 check("每个地区池的成员出口都一致", () => {
-  const regions = { 香港: "HK", 新加坡: "SG", 台湾: "TW", 日本: "JP", 美国: "US", 印度: "IN", 澳大利亚: "AU" };
+  const regions = { 香港池: "HK", 新加坡池: "SG", 台湾池: "TW", 日本池: "JP", 美国池: "US", 印度池: "IN", 澳大利亚池: "AU" };
   for (const [pool, cc] of Object.entries(regions)) {
     const g = groups[pool];
     assert(g, `缺少地区池 ${pool}`);
@@ -133,7 +138,7 @@ check("每个地区池的成员出口都一致", () => {
 
 // 6. 节点数不足 3 的地区不建池
 check("只有 2 个节点的地区不建池", () => {
-  assert(!groups["加拿大"], "加拿大只有 2 个验证节点，不应建池");
+  assert(!groups["加拿大池"], "加拿大只有 2 个验证节点，不应建池");
 });
 
 // 7. 其他组收纳池外节点
@@ -141,7 +146,7 @@ check("其他组收纳池外节点且不含池成员", () => {
   const m = M("其他");
   assert(m.includes("加拿大 T1"), "其他组缺少池外的加拿大节点");
   for (const n of m) {
-    assert(!["香港", "新加坡", "台湾", "日本", "美国", "印度", "澳大利亚"]
+    assert(!["香港池", "新加坡池", "台湾池", "日本池", "美国池", "印度池", "澳大利亚池"]
       .some((p) => (groups[p].proxies || []).includes(n)), `其他组混入了池成员 ${n}`);
   }
 });
@@ -209,8 +214,8 @@ check("机场组名按语义映射到对应组", () => {
   ];
   const out = main({ proxies: PROXIES.slice(), rules: airportRules.slice(), "proxy-groups": [] }, "t");
   const mapped = out.rules.slice(-airportRules.length).map((r) => r.split(",").pop());
-  assert(mapped[0] === "美国", "美国节点应映射到美国池，实际 " + mapped[0]);
-  assert(mapped[1] === "日本", "日本专线应映射到日本池，实际 " + mapped[1]);
+  assert(mapped[0] === "美国池", "美国节点应映射到美国池，实际 " + mapped[0]);
+  assert(mapped[1] === "日本池", "日本专线应映射到日本池，实际 " + mapped[1]);
   assert(mapped[2] === "REJECT", "广告拦截应映射到 REJECT，实际 " + mapped[2]);
   assert(mapped[3] === "DIRECT", "国内直连应映射到 DIRECT，实际 " + mapped[3]);
   assert(mapped[4] === "通用", "流媒体应回落通用，实际 " + mapped[4]);
@@ -287,15 +292,143 @@ check("落地页即使出现在清单里也不进任何组", () => {
 });
 
 // 10f. 未在 PREFER 中的地区也要有中文名
-check("PREFER 之外的地区用中文名建池", () => {
+check("动态发现的新地区也用「池」后缀", () => {
   // 池数量上限 8，这里只加一个地区，确保它落在上限内
   const extra = ["韩国 X1", "韩国 X2", "韩国 X3"];
   const manifest = Object.assign({}, VERIFIED_FIXTURE);
   extra.forEach((n, i) => { manifest[n] = ["KR", 500 + i]; });
   const proxies = PROXIES.concat(extra.map((n) => ({ name: n })));
   const { groups } = buildGroups(manifest, proxies);
-  assert(groups["韩国"], "应生成名为「韩国」的池，而不是 KR");
-  assert(!groups["KR"], "不应再出现代码名 KR");
+  assert(groups["韩国池"], "动态新地区也应生成「韩国池」");
+  assert(!groups["韩国"], "不应再有裸地区名组");
+  assert(!groups["KR池"], "对照表里有中文名时不用代码名");
+});
+
+// 10j. 组名统一走 uniqueName：地区池以「池」结尾，服务组用短名字；
+//      被订阅节点占用时按 X → XYZ → XYZ 年月日 递进升级，仍冲突再加序号。
+check("生成的组名互不重复，且地区池都以「池」结尾", () => {
+  const { config } = buildGroups();
+  const groups = config["proxy-groups"];
+  const names = groups.map((g) => g.name);
+  assert(new Set(names).size === names.length, "生成的组名有重复");
+  const proxyNames = new Set(config.proxies.map((p) => p.name));
+  for (const n of names) assert(!proxyNames.has(n), `组名 ${n} 与节点重名`);
+  const pools = groups.filter((g) => g.type === "url-test");
+  assert(pools.length > 0, "应生成地区池");
+  for (const g of pools) assert(g.name.endsWith("池"), `地区池 ${g.name} 应以「池」结尾`);
+});
+
+check("订阅出现裸地区名节点时池名仍是固定后缀", () => {
+  const collision = PROXIES.concat([{ name: "美国" }, { name: "AI" }]);
+  const manifest = Object.assign({}, VERIFIED_FIXTURE);
+  manifest["美国"] = ["US", 800];
+  manifest["AI"] = ["US", 810];
+  const { config, groups } = buildGroups(manifest, collision);
+  const proxyNames = new Set(config.proxies.map((p) => p.name));
+  assert(groups["美国池"], "美国池应保持固定名字");
+  assert(groups["AI X"], "服务组也走同一套避让");
+  for (const n of Object.keys(groups)) assert(!proxyNames.has(n), `组名 ${n} 与节点重名`);
+  for (const member of groups["美国池"].proxies) {
+    assert(manifest[member] && manifest[member][0] === "US", `美国池混入了非美国出口节点 ${member}`);
+  }
+});
+
+check("冲突按 X → XYZ → XYZ 年月日 递进升级", () => {
+  const main = loadScriptWithManifest(VERIFIED_FIXTURE);
+  const levels = [
+    ["美国池"],
+    ["美国池", "美国池 X"],
+    ["美国池", "美国池 X", "美国池 XYZ"],
+  ];
+  const expected = ["美国池 X", "美国池 XYZ", null];
+  levels.forEach((extra, i) => {
+    const out = main({
+      proxies: PROXIES.concat(extra.map((n) => ({ name: n }))),
+      rules: ["DOMAIN-SUFFIX,a.example,🇺🇸 美国节点"],
+      "proxy-groups": []
+    }, "t");
+    const names = out["proxy-groups"].map((g) => g.name);
+    const us = names.find((n) => n.indexOf("美国池") === 0);
+    if (expected[i]) assert(us === expected[i], `第 ${i + 1} 层冲突应为 ${expected[i]}，实际 ${us}`);
+    else assert(/^美国池 XYZ \d{8}/.test(us || ""), `第 3 层冲突应加 XYZ + 年月日，实际 ${us}`);
+    const known = new Set(names.concat(["DIRECT", "REJECT"]));
+    for (const r of out.rules) {
+      const parts = String(r).split(",");
+      let k = parts.length - 1;
+      if (parts[k] === "no-resolve" || parts[k] === "src") k--;
+      assert(known.has(parts[k]), "规则目标不存在：" + r);
+    }
+  });
+});
+
+check("AI 与通用成员顺序一致，只差香港池", () => {
+  const strip = (g) => M(g).filter((x) => x !== "其他" && x !== "DIRECT" && x !== "REJECT");
+  const ai = strip("AI"), general = strip("通用");
+  assert(!ai.includes("香港池"), "AI 不应含香港池");
+  assert(general.includes("香港池"), "通用应含香港池");
+  assert(JSON.stringify(general.filter((n) => n !== "香港池")) === JSON.stringify(ai),
+    "去掉香港后两组顺序应完全一致");
+});
+
+check("池外节点按实测出口分桶，桶内按延迟升序", () => {
+  // 让 US 节点超过 POOL_CAP(10)，制造真实的「池溢出」场景
+  const extra = [];
+  for (let i = 1; i <= 8; i++) extra.push("专线 " + i);
+  const manifest = Object.assign({}, VERIFIED_FIXTURE);
+  extra.forEach((n, i) => { manifest[n] = ["US", 100 + i]; });
+  manifest["VIP 慢 A"] = ["US", 5000];   // 名字里没有任何地区名，且延迟最高
+  manifest["VIP 慢 B"] = ["US", 6000];
+  const names = extra.concat(["VIP 慢 A", "VIP 慢 B"]);
+  const proxies = PROXIES.concat(names.map((n) => ({ name: n })));
+  const { groups } = buildGroups(manifest, proxies);
+  const m = groups["其他"].proxies.filter((x) => x !== "DIRECT" && x !== "REJECT");
+  assert(m.includes("VIP 慢 A") && m.includes("VIP 慢 B"), "池外节点应进「其他」，实际：" + JSON.stringify(m));
+  assert(m.indexOf("VIP 慢 A") < m.indexOf("VIP 慢 B"), "桶内应按实测延迟升序");
+  assert(m.indexOf("VIP 慢 B") < m.indexOf("加拿大 T1"),
+    "US 桶排在未列出的 CA 桶之前，即使桶内节点延迟更高");
+});
+
+check("节点名误导时仍按实测出口分桶", () => {
+  const extra = ["加拿大 伪装"];   // 名字像加拿大，实测出口却是 US
+  const manifest = Object.assign({}, VERIFIED_FIXTURE);
+  manifest["加拿大 伪装"] = ["US", 100];
+  const proxies = PROXIES.concat(extra.map((n) => ({ name: n })));
+  const { groups } = buildGroups(manifest, proxies);
+  const m = groups["其他"].proxies.filter((x) => x !== "DIRECT" && x !== "REJECT");
+  assert(m.indexOf("加拿大 伪装") < m.indexOf("加拿大 T1"),
+    "应归到 US 桶，而不是按名字和加拿大节点挤在同一桶的末尾");
+});
+
+check("对照表外的地区代码也用「池」后缀", () => {
+  // KR 在对照表里，用一个确实查不到的代码验证 (REGION_NAME[ccode] || ccode) + 后缀
+  const manifest = {
+    "QQ A1": ["QQ", 100], "QQ A2": ["QQ", 200], "QQ A3": ["QQ", 300],
+    "香港 A1": ["HK", 400], "香港 A2": ["HK", 500], "香港 A3": ["HK", 600],
+  };
+  const proxies = Object.keys(manifest).map((n) => ({ name: n }));
+  const { groups } = buildGroups(manifest, proxies);
+  assert(groups["QQ池"], "表外代码应生成「QQ池」，而不是裸代码名");
+  assert(!groups["QQ"], "不应出现裸代码名 QQ");
+});
+
+check("四级冲突加序号，三个服务组同时避让", () => {
+  const d = new Date();
+  const pad = (n) => (n < 10 ? "0" : "") + n;
+  const stamp = "" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate());
+  const main = loadScriptWithManifest(VERIFIED_FIXTURE);
+  const clash = ["美国池", "美国池 X", "美国池 XYZ", "美国池 XYZ " + stamp,
+                 "AI", "通用", "其他"];
+  const out = main({
+    proxies: PROXIES.concat(clash.map((n) => ({ name: n }))),
+    rules: ["MATCH,某组"],
+    "proxy-groups": []
+  }, "t");
+  const names = out["proxy-groups"].map((g) => g.name);
+  assert(names.includes("美国池 XYZ " + stamp + " 2"), "第四层冲突应加序号");
+  for (const base of ["AI", "通用", "其他"]) {
+    assert(names.includes(base + " X"), `${base} 也应走同一套避让`);
+  }
+  assert(new Set(names).size === names.length, "生成的组名有重复");
 });
 
 // 11. 组顺序

@@ -112,11 +112,12 @@ Linux 使用同一份 `install.sh`，首次安装后先执行 `clashctl exit-che
 ./tests/run.sh
 ```
 
-五个测试文件：`tests/groups.test.cjs` 验证分组与规则生成，`tests/manifest.test.py` 验证清单解析与增量决策，
-`tests/linux.test.py` 覆盖 Linux 路径、控制接口与 systemd 定时器，`tests/commands.test.py` 验证地区池展示顺序，
-`tests/check_sensitive.py` 守着仓库里不出现私网地址、订阅令牌与真实密钥。
+六个测试文件：`tests/groups.test.cjs` 验证分组与规则生成，`tests/paths.test.cjs` 验证测试路径与部署副本隔离，
+`tests/manifest.test.py` 验证清单解析与增量决策，`tests/linux.test.py` 覆盖 Linux 路径、控制接口与 systemd 定时器，
+`tests/commands.test.py` 验证地区池展示顺序，`tests/check_sensitive.py` 守着仓库里不出现私网地址、订阅令牌与真实密钥。
 
-分组测试默认读**本机已部署的** `Script.js`（即真正在跑的那份；不存在时回落到仓库里的源文件），可用 `CLASH_SCRIPT=<路径>` 指向其他副本；
+分组测试默认读仓库里的 `clash/Script.js`（校验即将安装的产物），不会因为本机部署的是旧版而失败；
+需要校验已部署副本时用 `node tests/groups.test.cjs --deployed`，或用 `--script <路径>` 指向其他副本。
 清单测试同理支持 `CLASHCTL_LIB`。
 
 ## 定时核验

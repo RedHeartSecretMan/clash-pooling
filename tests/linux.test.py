@@ -55,6 +55,15 @@ class LinuxTests(unittest.TestCase):
             self.assertEqual(platform.config_root(),
                              os.path.join("/tmp/clash-pooling-appdata", platform.APP_DIR))
 
+    def test_deploy_paths_ignore_debug_env(self):
+        """部署路径只由配置目录决定，不能被 CLASH_SCRIPT / CLASH_MERGE 改写"""
+        with patch.dict(os.environ, {"CLASH_SCRIPT": "/tmp/other.js",
+                                     "CLASH_MERGE": "/tmp/other.yaml"}):
+            self.assertEqual(platform.script_path(),
+                             os.path.join(platform.profiles_dir(), "Script.js"))
+            self.assertEqual(platform.merge_path(),
+                             os.path.join(platform.profiles_dir(), "Merge.yaml"))
+
     # ---------------------------------------------------------- 状态目录
     def test_state_dir_is_pure_read(self):
         """state_dir() 只读：旧目录存在也不该被搬走"""

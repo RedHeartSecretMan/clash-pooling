@@ -6,7 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "== 1. 测试 =="
+echo "== 1. 测试（校验仓库里的 Script.js） =="
 ./tests/run.sh
 
 echo
@@ -33,8 +33,19 @@ else
 fi
 
 echo
-echo "== 4. 安装后自检 =="
+echo "== 4. 部署后校验 =="
+if command -v node >/dev/null 2>&1; then
+  if ! node tests/groups.test.cjs --deployed; then
+    echo "  部署后校验失败：线上 Script.js 未通过规格测试，请检查或回滚（可用 clashctl backup 先备份）" >&2
+    exit 1
+  fi
+else
+  echo "  跳过：未安装 Node.js，无法校验部署副本"
+fi
+
+echo
+echo "== 5. 安装后自检 =="
 "$HOME/.local/bin/clashctl" auto status | sed 's/^/  /'
 echo
-echo "== 5. 环境诊断 =="
+echo "== 6. 环境诊断 =="
 "$HOME/.local/bin/clashctl" doctor | sed 's/^/  /'

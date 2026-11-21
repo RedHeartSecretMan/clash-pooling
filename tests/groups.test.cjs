@@ -1,9 +1,10 @@
 // 分组与规则的规格测试
 // 缝：Script.js 的 main(config) —— 输入合成 config + 受控 VERIFIED 清单，断言产出的代理组
 //
-// 默认读取线上部署的 Script.js（验证真正在跑的那份）；该文件不存在时回落到
-// 仓库里的 clash/Script.js，因此新机器首次安装也能跑测试。
-// 可用 CLASH_SCRIPT=<路径> 指向其他副本。
+// 默认只读仓库里的 clash/Script.js：规格测试校验的是即将安装的产物。
+// 不要默认读线上部署副本——升级时线上还是旧版，会让安装前的测试必然失败。
+// 需要校验已部署副本时显式传 --deployed（安装脚本的部署后校验用它），
+// 或用 --script <路径> 指定其他副本。
 const fs = require("fs");
 const path = require("path");
 
@@ -19,9 +20,32 @@ function deployedScript() {
   return path.join(process.env.HOME || "", "Library/Application Support", APP_DIR, "profiles", "Script.js");
 }
 
-const SCRIPT_PATH =
-  process.env.CLASH_SCRIPT ||
-  (fs.existsSync(deployedScript()) ? deployedScript() : path.join(__dirname, "..", "clash", "Script.js"));
+function fail(message) {
+  console.error("  ✗ " + message);
+  process.exit(2);
+}
+
+function parseTarget(argv) {
+  let target = "";
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--deployed") {
+      target = deployedScript();
+    } else if (arg === "--script") {
+      target = argv[++i];
+      if (!target) fail("--script 缺少路径");
+    } else if (arg.startsWith("--script=")) {
+      target = arg.slice("--script=".length);
+    } else {
+      fail("未知参数：" + arg);
+    }
+  }
+  if (!target) return path.join(__dirname, "..", "clash", "Script.js");
+  if (!fs.existsSync(target)) fail("找不到 Script.js：" + target);
+  return target;
+}
+
+const SCRIPT_PATH = parseTarget(process.argv.slice(2));
 
 // 造一批节点：每个地区 4 个（够建池），外加 2 个池外的加拿大节点和 1 个落地页
 function makeProxies() {

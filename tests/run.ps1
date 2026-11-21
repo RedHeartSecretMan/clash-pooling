@@ -33,6 +33,15 @@ if ($node) {
 }
 
 Write-Host ''
+Write-Host '== 安装路径隔离 =='
+if ($node) {
+    & node tests\paths.test.cjs
+    if ($LASTEXITCODE -ne 0) { $fail = 1 }
+} else {
+    Write-Host '  跳过：未安装 Node.js'
+}
+
+Write-Host ''
 Write-Host '== 清单与增量刷新 =='
 & $py tests\manifest.test.py
 if ($LASTEXITCODE -ne 0) { $fail = 1 }

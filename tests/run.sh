@@ -18,6 +18,14 @@ else
 fi
 
 echo
+echo "== 安装路径隔离 =="
+if command -v node >/dev/null 2>&1; then
+  node tests/paths.test.cjs || fail=1
+else
+  echo "  跳过：未安装 Node.js（该项需要分组测试的 Node 运行环境）"
+fi
+
+echo
 echo "== 清单与增量刷新 =="
 python3 tests/manifest.test.py || fail=1
 

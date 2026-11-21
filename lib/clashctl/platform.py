@@ -36,11 +36,17 @@ def generated_config():
 
 
 def script_path():
-    return os.environ.get("CLASH_SCRIPT") or os.path.join(profiles_dir(), "Script.js")
+    """线上部署的 Script.js。
+
+    只由平台默认配置目录决定，不接受环境变量覆盖：`sync` 会写这个路径，
+    测试用的替代路径若从这里注入，会把部署写到错误的位置。
+    """
+    return os.path.join(profiles_dir(), "Script.js")
 
 
 def merge_path():
-    return os.environ.get("CLASH_MERGE") or os.path.join(profiles_dir(), "Merge.yaml")
+    """线上部署的 Merge.yaml；与 script_path() 使用同一套路径口径。"""
+    return os.path.join(profiles_dir(), "Merge.yaml")
 
 
 STATE_DIR = "~/.clash-pooling"

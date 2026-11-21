@@ -7,7 +7,7 @@ $env:PYTHONIOENCODING = 'utf-8'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dest = Join-Path $env:LOCALAPPDATA 'clash-pooling'
 
-Write-Host '== 1. 测试 =='
+Write-Host '== 1. 测试（校验仓库里的 Script.js） =='
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'tests\run.ps1')
 if ($LASTEXITCODE -ne 0) { Write-Host '测试未通过，中止安装' -ForegroundColor Red; exit 1 }
 
@@ -42,8 +42,21 @@ Write-Host '== 4. 同步 Clash 配置 =='
 & (Join-Path $binPath 'clashctl.cmd') sync
 
 Write-Host ''
-Write-Host '== 5. 自检 =='
+Write-Host '== 5. 部署后校验 =='
+$node = Get-Command node -ErrorAction SilentlyContinue
+if ($node) {
+    & node tests\groups.test.cjs --deployed
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host '部署后校验失败：线上 Script.js 未通过规格测试，请检查或回滚' -ForegroundColor Red
+        exit 1
+    }
+} else {
+    Write-Host '  跳过：未安装 Node.js，无法校验部署副本'
+}
+
+Write-Host ''
+Write-Host '== 6. 自检 =='
 & (Join-Path $binPath 'clashctl.cmd') auto status
 Write-Host ''
-Write-Host '== 6. 环境诊断 =='
+Write-Host '== 7. 环境诊断 =='
 & (Join-Path $binPath 'clashctl.cmd') doctor

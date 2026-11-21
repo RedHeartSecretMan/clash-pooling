@@ -10,8 +10,11 @@
 powershell -ExecutionPolicy Bypass -File .\install.ps1   # Windows
 ```
 
-流程：跑测试（全绿才继续）→ 安装工具 → 同步 Clash 配置 → 自检 → 环境诊断。
-macOS 端 5 步，Windows 端多一步「把安装目录加入用户 PATH」。
+流程：跑测试（校验仓库里的 `clash/Script.js`，全绿才继续）→ 安装工具 → 同步 Clash 配置 → 部署后校验（`--deployed`）→ 自检 → 环境诊断。
+macOS / Linux 端 6 步，Windows 端多一步「把安装目录加入用户 PATH」。
+
+两个安装脚本都可以直接用于升级：安装前的测试校验仓库源文件，不会因为线上还是旧版而失败；
+同步完成后再用 `node tests/groups.test.cjs --deployed` 校验线上副本，确保配置真的写对了。
 
 macOS 不自动改 PATH；如果 `clashctl` 提示 command not found，把下面这行加进 shell 配置，
 或直接用绝对路径 `~/.local/bin/clashctl`：
